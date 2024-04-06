@@ -103,7 +103,7 @@ func (idx *Index) Find(params *FindParams) map[int64]float64 {
 			keys = append(keys, k)
 		}
 		if len(keys) > 0 {
-			d := Intersection(keys...)
+			d := lib.Intersection(keys...)
 			for id := range idScores {
 				if !slices.Contains(d, id) {
 					delete(idScores, id)

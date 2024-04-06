@@ -1,4 +1,4 @@
-package search
+package lib
 
 import (
 	"slices"
@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func isEqual(dataVal, val any) bool {
+func IsEqual(dataVal, val any) bool {
 	switch val := val.(type) {
 	case string:
 		switch gtVal := dataVal.(type) {

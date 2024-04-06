@@ -12,9 +12,9 @@ import (
 )
 
 func main() {
-	// testMap()
+	testMap()
 	// testStruct()
-	testString()
+	// testString()
 }
 
 type ICD struct {

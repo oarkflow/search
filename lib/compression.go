@@ -1,4 +1,4 @@
-package search
+package lib
 
 import (
 	"bytes"
@@ -41,7 +41,7 @@ func Decompress(data []byte) ([]byte, error) {
 	return d, nil
 }
 
-func compressFolder(source, target string) error {
+func CompressFolder(source, target string) error {
 	targetFile, err := os.Create(target)
 	if err != nil {
 		return err

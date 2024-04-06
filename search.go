@@ -17,6 +17,7 @@ import (
 	"github.com/oarkflow/maps"
 
 	"github.com/oarkflow/search/lib"
+	"github.com/oarkflow/search/storage"
 	"github.com/oarkflow/search/tokenizer"
 )
 
@@ -120,7 +121,7 @@ type Config struct {
 
 type Engine[Schema SchemaProps] struct {
 	mutex           sync.RWMutex
-	documents       KVStore[int64, Schema]
+	documents       storage.Store[int64, Schema]
 	indexes         maps.IMap[string, *Index]
 	indexKeys       []string
 	defaultLanguage tokenizer.Language
@@ -148,7 +149,7 @@ func New[Schema SchemaProps](c *Config) (*Engine[Schema], error) {
 	if c.Path == "" {
 		c.Path = "fts/" + c.Key
 	}
-	store, err := NewFlyDB[int64, Schema](c.Path, c.Compress)
+	store, err := storage.NewFlyDB[int64, Schema](c.Path, c.Compress)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +171,7 @@ func New[Schema SchemaProps](c *Config) (*Engine[Schema], error) {
 }
 
 func (db *Engine[Schema]) Compress() error {
-	err := compressFolder(db.path, db.path+".zip")
+	err := lib.CompressFolder(db.path, db.path+".zip")
 	if err != nil {
 		return err
 	}
@@ -331,7 +332,7 @@ func (db *Engine[Schema]) Check(data Schema, filter map[string]any) bool {
 		for key, value := range filter {
 			keyValue := reflect.ValueOf(key)
 			dataValue := dataMap.MapIndex(keyValue)
-			if !dataValue.IsValid() || !isEqual(dataValue.Interface(), value) {
+			if !dataValue.IsValid() || !lib.IsEqual(dataValue.Interface(), value) {
 				return false
 			}
 		}
@@ -341,7 +342,7 @@ func (db *Engine[Schema]) Check(data Schema, filter map[string]any) bool {
 		dataValue := reflect.ValueOf(data)
 		for key, value := range filter {
 			fieldValue := dataValue.FieldByName(key)
-			if !dataValue.IsValid() || !isEqual(fieldValue.Interface(), value) {
+			if !dataValue.IsValid() || !lib.IsEqual(fieldValue.Interface(), value) {
 				return false
 			}
 		}
@@ -408,7 +409,7 @@ func (db *Engine[Schema]) SearchOld(params *Params) (Result[Schema], error) {
 			keys = append(keys, k)
 		}
 		if len(keys) > 0 {
-			d := Intersection(keys...)
+			d := lib.Intersection(keys...)
 			for id := range idScores {
 				if !slices.Contains(d, id) {
 					delete(idScores, id)

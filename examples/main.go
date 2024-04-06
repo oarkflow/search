@@ -9,12 +9,32 @@ import (
 
 	"github.com/oarkflow/search"
 	"github.com/oarkflow/search/tokenizer"
+	"github.com/oarkflow/search/web"
 )
 
 func main() {
-	testMap()
+	httpTest()
+	// testMap()
 	// testStruct()
 	// testString()
+}
+
+func httpTest() {
+	data := readFileAsMap("icd10_codes.json")
+	db, _ := search.New[any](&search.Config{
+		DefaultLanguage: tokenizer.ENGLISH,
+		TokenizerConfig: &tokenizer.Config{
+			EnableStemming:  true,
+			EnableStopWords: true,
+		},
+		Key: "icd",
+	})
+	errs := db.InsertBatch(data, 1000)
+	if len(errs) > 0 {
+		panic(errs)
+	}
+	search.AddEngine("icd", db)
+	web.StartServer("0.0.0.0:8001")
 }
 
 type ICD struct {
@@ -39,7 +59,7 @@ func readData() (icds []ICD) {
 func readFileAsMap(file string) (icds []any) {
 	jsonData, err := os.ReadFile(file)
 	if err != nil {
-		fmt.Printf("failed to read json file, error: %v", err)
+		panic("failed to read json file, error: " + err.Error())
 		return
 	}
 

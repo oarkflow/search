@@ -149,6 +149,10 @@ func New[Schema SchemaProps](c *Config) (*Engine[Schema], error) {
 	if c.Path == "" {
 		c.Path = "fts/" + c.Key
 	}
+	err := os.RemoveAll(c.Path)
+	if err != nil {
+		return nil, err
+	}
 	store, err := storage.NewFlyDB[int64, Schema](c.Path, c.Compress)
 	if err != nil {
 		return nil, err

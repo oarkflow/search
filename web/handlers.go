@@ -50,7 +50,7 @@ func Index[Schema search.SchemaProps](key string, data Schema, eng ...*search.En
 	if len(eng) > 0 {
 		engine = eng[0]
 	} else {
-		engine, err = search.GetEngine[any](key, search.DefaultPath)
+		engine, err = search.GetEngine[any](key)
 		if err != nil {
 			return search.Record[any]{}, err
 		}
@@ -82,7 +82,7 @@ func (f *FulltextController) IndexInBatch(_ context.Context, ctx *frame.Context)
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	engine, err := search.GetEngine[any](keyType, search.DefaultPath)
+	engine, err := search.GetEngine[any](keyType)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
@@ -113,7 +113,7 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		return
 	}
 	keyType := ctx.Param("type")
-	engine, err := search.GetEngine[any](keyType, search.DefaultPath)
+	engine, err := search.GetEngine[any](keyType)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
@@ -185,7 +185,7 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 
 func (f *FulltextController) TotalDocuments(_ context.Context, ctx *frame.Context) {
 	keyType := ctx.Param("type")
-	engine, err := search.GetEngine[any](keyType, search.DefaultPath)
+	engine, err := search.GetEngine[any](keyType)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return

@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"math"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"sort"
@@ -148,9 +149,9 @@ func New[Schema SchemaProps](c *Config) (*Engine[Schema], error) {
 		c.Key = xid.New().String()
 	}
 	if c.Path != "" {
-		DefaultPath = c.Path
+		c.Path = filepath.Join(DefaultPath, c.Path, c.Key)
 	} else {
-		c.Path = DefaultPath
+		c.Path = filepath.Join(DefaultPath, c.Key)
 	}
 	if c.ResetPath {
 		err := os.RemoveAll(c.Path)

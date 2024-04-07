@@ -12,11 +12,9 @@ func init() {
 	engines = maps.New[string, any]()
 }
 
-var (
-	DefaultPath = "storage/fts"
-)
+var DefaultPath = "storage/fts"
 
-func GetConfig(key, path string) *Config {
+func GetConfig(key string) *Config {
 	return &Config{
 		Key:             key,
 		DefaultLanguage: tokenizer.ENGLISH,
@@ -24,16 +22,15 @@ func GetConfig(key, path string) *Config {
 			EnableStemming:  true,
 			EnableStopWords: true,
 		},
-		Path: path,
 	}
 }
 
-func GetEngine[Schema SchemaProps](key, path string) (*Engine[Schema], error) {
+func GetEngine[Schema SchemaProps](key string) (*Engine[Schema], error) {
 	eng, _ := engines.Get(key)
 	if eng != nil {
 		return eng.(*Engine[Schema]), nil
 	}
-	config := GetConfig(key, path)
+	config := GetConfig(key)
 	eng, err := New[Schema](config)
 	if err != nil {
 		return nil, err

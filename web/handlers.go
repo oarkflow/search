@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"strings"
 
@@ -59,112 +58,64 @@ func Index[Schema search.SchemaProps](key string, data Schema, eng ...*search.En
 	return engine.Insert(data)
 }
 
-func (f *FulltextController) Index(c context.Context, ctx *frame.Context) {
+func (f *FulltextController) Index(_ context.Context, ctx *frame.Context) {
 	var req IndexRequest
 	err := ctx.Bind(&req)
-	if err != nil {
-		ctx.AbortWithJSON(consts.StatusOK, utils.H{
-			"message": err.Error(),
-			"code":    consts.StatusBadRequest,
-			"success": false,
-		})
-		return
-	}
 	keyType := ctx.Param("type")
-	if keyType == "" || req.Data == nil {
-		ctx.AbortWithJSON(consts.StatusOK, utils.H{
-			"message": errors.New("Unable to parse data"),
-			"code":    consts.StatusBadRequest,
-			"success": false,
-		})
+	if err != nil || keyType == "" || req.Data == nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	record, err := Index(keyType, req.Data)
 	if err != nil {
-		ctx.AbortWithJSON(consts.StatusOK, utils.H{
-			"message": err.Error(),
-			"code":    consts.StatusBadRequest,
-			"success": false,
-		})
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	ctx.JSON(consts.StatusOK, utils.H{
-		"code":    consts.StatusOK,
-		"data":    record,
-		"success": true,
-	})
+	Success(ctx, consts.StatusOK, record)
 }
 
-func (f *FulltextController) IndexInBatch(c context.Context, ctx *frame.Context) {
+func (f *FulltextController) IndexInBatch(_ context.Context, ctx *frame.Context) {
 	var req IndexInBatchRequest
-	err := ctx.Bind(&req)
-	if err != nil {
-		ctx.AbortWithJSON(consts.StatusOK, utils.H{
-			"message": err.Error(),
-			"code":    consts.StatusBadRequest,
-			"success": false,
-		})
-		return
-	}
 	keyType := ctx.Param("type")
-	if keyType == "" || req.Data == nil {
-		ctx.AbortWithJSON(consts.StatusOK, utils.H{
-			"message": errors.New("Unable to parse data"),
-			"code":    consts.StatusBadRequest,
-			"success": false,
-		})
+	err := ctx.Bind(&req)
+	if err != nil || keyType == "" || req.Data == nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	engine, err := search.GetEngine[any](keyType)
 	if err != nil {
-		ctx.AbortWithJSON(consts.StatusOK, utils.H{
-			"message": err.Error(),
-			"code":    consts.StatusBadRequest,
-			"success": false,
-		})
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	var records []search.Record[any]
 	for _, data := range req.Data {
 		record, err := Index[any](keyType, data, engine)
 		if err != nil {
-			ctx.AbortWithJSON(consts.StatusOK, utils.H{
-				"message": err.Error(),
-				"code":    consts.StatusBadRequest,
-				"success": false,
-			})
+			Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 			return
 		}
 		records = append(records, record)
 	}
-	ctx.JSON(consts.StatusOK, utils.H{
-		"code":    consts.StatusOK,
-		"data":    records,
-		"success": true,
-	})
+	Success(ctx, consts.StatusOK, records)
 }
 
-func (f *FulltextController) Search(c context.Context, ctx *frame.Context) {
+func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 	var query Query
 	err := ctx.Bind(&query)
 	if err != nil {
-		ctx.AbortWithJSON(consts.StatusOK, utils.H{
-			"message": errors.New("Unable to query"),
-			"code":    consts.StatusBadRequest,
-			"success": false,
-		})
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	var extra map[string]any
-	ctx.Bind(&extra)
+	err = ctx.Bind(&extra)
+	if err != nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+		return
+	}
 	keyType := ctx.Param("type")
 	engine, err := search.GetEngine[any](keyType)
 	if err != nil {
-		ctx.AbortWithJSON(consts.StatusOK, utils.H{
-			"message": err.Error(),
-			"code":    consts.StatusBadRequest,
-			"success": false,
-		})
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	if extra != nil && query.Extra == nil {
@@ -208,11 +159,7 @@ func (f *FulltextController) Search(c context.Context, ctx *frame.Context) {
 
 	result, err := engine.Search(params)
 	if err != nil {
-		ctx.AbortWithJSON(consts.StatusOK, utils.H{
-			"message": err.Error(),
-			"code":    consts.StatusBadRequest,
-			"success": false,
-		})
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	for _, record := range result.Hits {
@@ -230,34 +177,22 @@ func (f *FulltextController) Search(c context.Context, ctx *frame.Context) {
 			records = append(records, d)
 		}
 	}
-	ctx.JSON(consts.StatusOK, utils.H{
-		"success": true,
-		"code":    consts.StatusOK,
-		"data": utils.H{
-			keyType: records,
-			"total": result.Count,
-		},
+	Success(ctx, consts.StatusOK, utils.H{
+		keyType: records,
+		"total": result.Count,
 	})
 }
 
-func (f *FulltextController) TotalDocuments(c context.Context, ctx *frame.Context) {
+func (f *FulltextController) TotalDocuments(_ context.Context, ctx *frame.Context) {
 	keyType := ctx.Param("type")
 	engine, err := search.GetEngine[any](keyType)
 	if err != nil {
-		ctx.AbortWithJSON(consts.StatusOK, utils.H{
-			"message": err.Error(),
-			"code":    consts.StatusBadRequest,
-			"success": false,
-		})
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	engine.DocumentLen()
-	ctx.JSON(consts.StatusOK, utils.H{
-		"success": true,
-		"code":    consts.StatusOK,
-		"data": utils.H{
-			"count": engine.DocumentLen(),
-		},
+	Success(ctx, consts.StatusOK, utils.H{
+		"count": engine.DocumentLen(),
 	})
 }
 
@@ -281,7 +216,6 @@ func StartServer(addr string, routePrefix ...string) {
 		server.WithHandleMethodNotAllowed(true),
 		server.WithStreamBody(true),
 	)
-	route := srv.Group(prefix)
-	SearchRoutes(route)
+	SearchRoutes(srv.Group(prefix))
 	srv.Spin()
 }

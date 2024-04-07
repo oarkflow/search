@@ -44,15 +44,15 @@ func NewFulltextController() *FulltextController {
 
 var controller = NewFulltextController()
 
-func Index[Schema search.SchemaProps](key string, data Schema, eng ...*search.Engine[any]) (search.Record[any], error) {
+func Index[Schema search.SchemaProps](key string, data Schema, eng ...*search.Engine[Schema]) (search.Record[Schema], error) {
 	var err error
-	var engine *search.Engine[any]
+	var engine *search.Engine[Schema]
 	if len(eng) > 0 {
 		engine = eng[0]
 	} else {
-		engine, err = search.GetEngine[any](key)
+		engine, err = search.GetEngine[Schema](key)
 		if err != nil {
-			return search.Record[any]{}, err
+			return search.Record[Schema]{}, err
 		}
 	}
 	return engine.Insert(data)
@@ -82,14 +82,14 @@ func (f *FulltextController) IndexInBatch(_ context.Context, ctx *frame.Context)
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	engine, err := search.GetEngine[any](keyType)
+	engine, err := search.GetEngine[map[string]any](keyType)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	var records []search.Record[any]
+	var records []search.Record[map[string]any]
 	for _, data := range req.Data {
-		record, err := Index[any](keyType, data, engine)
+		record, err := Index[map[string]any](keyType, data, engine)
 		if err != nil {
 			Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 			return
@@ -113,7 +113,7 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		return
 	}
 	keyType := ctx.Param("type")
-	engine, err := search.GetEngine[any](keyType)
+	engine, err := search.GetEngine[map[string]any](keyType)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
@@ -163,7 +163,7 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		return
 	}
 	for _, record := range result.Hits {
-		switch d := record.Data.(type) {
+		switch d := any(record.Data).(type) {
 		case map[any]any:
 			tmp := make(map[string]any)
 			for k, v := range d {

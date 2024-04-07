@@ -21,7 +21,7 @@ func main() {
 
 func httpTest() {
 	data := readFileAsMap("icd10_codes.json")
-	db, _ := search.New[any](&search.Config{
+	db, _ := search.New[map[string]any](&search.Config{
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
 			EnableStemming:  true,
@@ -56,7 +56,7 @@ func readData() (icds []ICD) {
 	return
 }
 
-func readFileAsMap(file string) (icds []any) {
+func readFileAsMap(file string) (icds []map[string]any) {
 	jsonData, err := os.ReadFile(file)
 	if err != nil {
 		panic("failed to read json file, error: " + err.Error())
@@ -93,7 +93,7 @@ func memoryUsage() float64 {
 
 func testMap() {
 	data := readFileAsMap("icd10_codes.json")
-	db, _ := search.New[any](&search.Config{
+	db, _ := search.New[map[string]any](&search.Config{
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
 			EnableStemming:  true,

@@ -98,7 +98,7 @@ func (f *FulltextController) NewEngine(_ context.Context, ctx *frame.Context) {
 	cfg.FieldsToStore = req.FieldsToStore
 	cfg.Compress = req.Compress
 	cfg.ResetPath = req.Reset
-	err = search.SetEngine[map[string]any](req.Key, cfg)
+	_, err = search.SetEngine[map[string]any](req.Key, cfg)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return

@@ -36,17 +36,17 @@ func GetEngine[Schema SchemaProps](key string) (*Engine[Schema], error) {
 	return nil, errors.New(fmt.Sprintf("Engine for key %s not available", key))
 }
 
-func SetEngine[Schema SchemaProps](key string, config *Config) error {
+func SetEngine[Schema SchemaProps](key string, config *Config) (*Engine[Schema], error) {
 	_, ok := engines.Get(key)
 	if ok {
-		return errors.New(fmt.Sprintf("Engine for key %s already exists", key))
+		return nil, errors.New(fmt.Sprintf("Engine for key %s already exists", key))
 	}
 	eng, err := New[Schema](config)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	AddEngine(key, eng)
-	return nil
+	return eng, nil
 }
 
 func AddEngine(key string, engine any) {

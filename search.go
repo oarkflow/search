@@ -117,6 +117,7 @@ type Config struct {
 	SliceField      string
 	Path            string
 	Compress        bool
+	ResetPath       bool
 }
 
 type Engine[Schema SchemaProps] struct {
@@ -151,9 +152,11 @@ func New[Schema SchemaProps](c *Config) (*Engine[Schema], error) {
 	} else {
 		c.Path = DefaultPath
 	}
-	err := os.RemoveAll(c.Path)
-	if err != nil {
-		return nil, err
+	if c.ResetPath {
+		err := os.RemoveAll(c.Path)
+		if err != nil {
+			return nil, err
+		}
 	}
 	store, err := storage.NewFlyDB[int64, Schema](c.Path, c.Compress)
 	if err != nil {

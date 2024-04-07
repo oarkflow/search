@@ -45,7 +45,7 @@ func SetEngine[Schema SchemaProps](key string, config *Config) error {
 	if err != nil {
 		return err
 	}
-	engines.Set(key, eng)
+	AddEngine(key, eng)
 	return nil
 }
 

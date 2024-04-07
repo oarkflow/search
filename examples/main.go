@@ -20,8 +20,8 @@ func main() {
 }
 
 func httpTest() {
-	data := readFileAsMap("icd10_codes.json")
-	db, _ := search.New[map[string]any](&search.Config{
+
+	/*db, _ := search.New[map[string]any](&search.Config{
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
 			EnableStemming:  true,
@@ -29,11 +29,12 @@ func httpTest() {
 		},
 		Key: "icd",
 	})
+	data := readFileAsMap("icd10_codes.json")
 	errs := db.InsertBatch(data, 1000)
 	if len(errs) > 0 {
 		panic(errs)
 	}
-	search.AddEngine("icd", db)
+	search.AddEngine("icd", db)*/
 	web.StartServer("0.0.0.0:8001")
 }
 

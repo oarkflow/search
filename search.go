@@ -34,8 +34,8 @@ type Mode string
 type SchemaProps any
 
 type Record[Schema SchemaProps] struct {
-	Id   int64
-	Data Schema
+	Id   int64  `json:"id"`
+	Data Schema `json:"data"`
 }
 
 type InsertParams[Schema SchemaProps] struct {
@@ -91,14 +91,14 @@ type BM25Params struct {
 }
 
 type Result[Schema SchemaProps] struct {
-	Hits  Hits[Schema]
-	Count int
+	Hits  Hits[Schema] `json:"hits"`
+	Count int          `json:"count"`
 }
 
 type Hit[Schema SchemaProps] struct {
-	Id    int64
-	Data  Schema
-	Score float64
+	Id    int64   `json:"id"`
+	Data  Schema  `json:"data"`
+	Score float64 `json:"score"`
 }
 
 type Hits[Schema SchemaProps] []Hit[Schema]
@@ -110,15 +110,16 @@ func (r Hits[Schema]) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
 func (r Hits[Schema]) Less(i, j int) bool { return r[i].Score > r[j].Score }
 
 type Config struct {
-	Key             string
-	DefaultLanguage tokenizer.Language
+	Key             string             `json:"key"`
+	DefaultLanguage tokenizer.Language `json:"default_language"`
 	TokenizerConfig *tokenizer.Config
-	IndexKeys       []string
-	Rules           map[string]bool
-	SliceField      string
-	Path            string
-	Compress        bool
-	ResetPath       bool
+	IndexKeys       []string        `json:"index_keys"`
+	FieldsToStore   []string        `json:"fields_to_store"`
+	Rules           map[string]bool `json:"rules"`
+	SliceField      string          `json:"slice_field"`
+	Path            string          `json:"path"`
+	Compress        bool            `json:"compress"`
+	ResetPath       bool            `json:"reset_path"`
 }
 
 type Engine[Schema SchemaProps] struct {
@@ -133,6 +134,7 @@ type Engine[Schema SchemaProps] struct {
 	key             string
 	sliceField      string
 	path            string
+	cfg             *Config
 }
 
 func New[Schema SchemaProps](c *Config) (*Engine[Schema], error) {
@@ -172,6 +174,7 @@ func New[Schema SchemaProps](c *Config) (*Engine[Schema], error) {
 		rules:           c.Rules,
 		sliceField:      c.SliceField,
 		path:            c.Path,
+		cfg:             c,
 	}
 	db.buildIndexes()
 	if len(db.indexKeys) == 0 {
@@ -212,6 +215,25 @@ func (db *Engine[Schema]) buildIndexes() {
 }
 
 func (db *Engine[Schema]) Insert(doc Schema, lang ...tokenizer.Language) (Record[Schema], error) {
+	if len(db.cfg.FieldsToStore) > 0 {
+		switch doc := any(doc).(type) {
+		case map[string]any:
+			for k := range doc {
+				if !slices.Contains(db.cfg.FieldsToStore, k) {
+					delete(doc, k)
+				}
+			}
+		case map[any]any:
+			for k := range doc {
+				switch k := k.(type) {
+				case string:
+					if !slices.Contains(db.cfg.FieldsToStore, k) {
+						delete(doc, k)
+					}
+				}
+			}
+		}
+	}
 	if len(db.indexKeys) == 0 {
 		indexKeys := DocFields(doc)
 		db.addIndexes(indexKeys)

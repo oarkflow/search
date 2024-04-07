@@ -21,6 +21,8 @@ const (
 	SWEDISH   Language = "sv"
 )
 
+var Languages = []Language{ENGLISH, FRENCH, HUNGARIAN, NORWEGIAN, RUSSIAN, SPANISH, SWEDISH}
+
 var splitRules = map[Language]*regexp.Regexp{
 	ENGLISH:   regexp.MustCompile(`[^A-Za-zàèéìòóù0-9_'-:.]`),
 	FRENCH:    regexp.MustCompile(`[^a-z0-9äâàéèëêïîöôùüûœç-]`),

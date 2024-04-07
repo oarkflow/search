@@ -28,6 +28,14 @@ type Query struct {
 	Extra     map[string]any `json:"extra"`
 }
 
+type NewEngine struct {
+	Key           string   `json:"key"`
+	FieldsToIndex []string `json:"fields_to_index"`
+	FieldsToStore []string `json:"fields_to_store"`
+	Reset         bool     `json:"reset"`
+	Compress      bool     `json:"compress"`
+}
+
 type IndexRequest struct {
 	Data map[string]any `json:"data"`
 }
@@ -72,6 +80,30 @@ func (f *FulltextController) Index(_ context.Context, ctx *frame.Context) {
 		return
 	}
 	Success(ctx, consts.StatusOK, record)
+}
+
+func (f *FulltextController) NewEngine(_ context.Context, ctx *frame.Context) {
+	var req NewEngine
+	err := ctx.Bind(&req)
+	if err != nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if req.Key == "" {
+		Failed(ctx, consts.StatusBadRequest, "Key not provided", nil)
+		return
+	}
+	cfg := search.GetConfig(req.Key)
+	cfg.IndexKeys = req.FieldsToIndex
+	cfg.FieldsToStore = req.FieldsToStore
+	cfg.Compress = req.Compress
+	cfg.ResetPath = req.Reset
+	err = search.SetEngine[map[string]any](req.Key, cfg)
+	if err != nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	Success(ctx, consts.StatusOK, utils.H{"key": req.Key, "index_fields": req.FieldsToIndex}, "New fulltext data list added")
 }
 
 func (f *FulltextController) IndexInBatch(_ context.Context, ctx *frame.Context) {
@@ -197,6 +229,7 @@ func (f *FulltextController) TotalDocuments(_ context.Context, ctx *frame.Contex
 }
 
 func SearchRoutes(route route.IRouter) route.IRouter {
+	route.POST("/new", controller.NewEngine)
 	route.POST("/index/:type/batch", controller.IndexInBatch)
 	route.POST("/index/:type", controller.Index)
 	route.POST("/search/:type", controller.Search)

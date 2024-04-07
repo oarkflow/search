@@ -1,6 +1,9 @@
 package search
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/oarkflow/maps"
 
 	"github.com/oarkflow/search/tokenizer"
@@ -30,13 +33,20 @@ func GetEngine[Schema SchemaProps](key string) (*Engine[Schema], error) {
 	if eng != nil {
 		return eng.(*Engine[Schema]), nil
 	}
-	config := GetConfig(key)
+	return nil, errors.New(fmt.Sprintf("Engine for key %s not available", key))
+}
+
+func SetEngine[Schema SchemaProps](key string, config *Config) error {
+	_, ok := engines.Get(key)
+	if ok {
+		return errors.New(fmt.Sprintf("Engine for key %s already exists", key))
+	}
 	eng, err := New[Schema](config)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	engines.Set(key, eng)
-	return eng.(*Engine[Schema]), nil
+	return nil
 }
 
 func AddEngine(key string, engine any) {

@@ -48,6 +48,18 @@ func SetEngine[Schema SchemaProps](key string, config *Config) (*Engine[Schema],
 	AddEngine(key, eng)
 	return eng, nil
 }
+func GetOrSetEngine[Schema SchemaProps](key string, config *Config) (*Engine[Schema], error) {
+	eng1, ok := engines.Get(key)
+	if ok && eng1 != nil {
+		return eng1.(*Engine[Schema]), nil
+	}
+	eng, err := New[Schema](config)
+	if err != nil {
+		return nil, err
+	}
+	AddEngine(key, eng)
+	return eng, nil
+}
 
 func AddEngine(key string, engine any) {
 	engines.Set(key, engine)

@@ -146,8 +146,10 @@ func New[Schema SchemaProps](c *Config) (*Engine[Schema], error) {
 	if c.Key == "" {
 		c.Key = xid.New().String()
 	}
-	if c.Path == "" {
-		c.Path = "fts/" + c.Key
+	if c.Path != "" {
+		DefaultPath = c.Path
+	} else {
+		c.Path = DefaultPath
 	}
 	err := os.RemoveAll(c.Path)
 	if err != nil {

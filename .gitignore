@@ -2,3 +2,4 @@
 examples/storage
 examples/icd10_codes.json
 tmp
+bin

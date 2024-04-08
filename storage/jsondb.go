@@ -25,6 +25,11 @@ func NewJsonDB[K comparable, V any](basePath string, compress bool) (Store[K, V]
 	return &JsonDB[K, V]{basePath: basePath, compress: compress}, nil
 }
 
+// Sample removes a key-value pair from disk
+func (s *JsonDB[K, V]) Sample() (map[string]V, error) {
+	return nil, nil
+}
+
 // Set stores a key-value pair on disk
 func (s *JsonDB[K, V]) Set(key K, value V) error {
 	fileName := filepath.Join(s.basePath, fmt.Sprintf("%v.json", key))

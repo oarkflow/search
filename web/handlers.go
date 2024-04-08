@@ -4,9 +4,11 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/oarkflow/frame/pkg/protocol/consts"
 	"github.com/oarkflow/frame/server"
+	"github.com/oarkflow/metadata"
 
 	"github.com/oarkflow/search"
 	"github.com/oarkflow/search/tokenizer"
@@ -15,26 +17,6 @@ import (
 	"github.com/oarkflow/frame/pkg/common/utils"
 	"github.com/oarkflow/frame/pkg/route"
 )
-
-type Query struct {
-	Query     string         `json:"q" query:"q"`
-	Match     string         `json:"m" query:"m"`
-	Language  string         `json:"l" query:"l"`
-	Fields    []string       `json:"f" query:"f"`
-	Exact     bool           `json:"e" query:"e"`
-	Tolerance int            `json:"t" query:"t"`
-	Offset    int            `json:"o" query:"o"`
-	Size      int            `json:"s" query:"s"`
-	Extra     map[string]any `json:"extra"`
-}
-
-type NewEngine struct {
-	Key           string   `json:"key"`
-	FieldsToIndex []string `json:"fields_to_index"`
-	FieldsToStore []string `json:"fields_to_store"`
-	Reset         bool     `json:"reset"`
-	Compress      bool     `json:"compress"`
-}
 
 type IndexRequest struct {
 	Data map[string]any `json:"data"`
@@ -96,6 +78,7 @@ func (f *FulltextController) NewEngine(_ context.Context, ctx *frame.Context) {
 	cfg := search.GetConfig(req.Key)
 	cfg.IndexKeys = req.FieldsToIndex
 	cfg.FieldsToStore = req.FieldsToStore
+	cfg.FieldsToExclude = req.FieldsToExclude
 	cfg.Compress = req.Compress
 	cfg.ResetPath = req.Reset
 	_, err = search.SetEngine[map[string]any](req.Key, cfg)
@@ -228,8 +211,46 @@ func (f *FulltextController) TotalDocuments(_ context.Context, ctx *frame.Contex
 	})
 }
 
+func (f *FulltextController) IndexFromDatabase(_ context.Context, ctx *frame.Context) {
+	var dbConfig Database
+	err := ctx.Bind(&dbConfig)
+	if err != nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+		return
+	}
+
+	con := metadata.New(metadata.Config{
+		Name:     dbConfig.IndexKey,
+		Host:     dbConfig.Host,
+		Port:     dbConfig.Port,
+		Driver:   dbConfig.Driver,
+		Username: dbConfig.Username,
+		Password: dbConfig.Password,
+		Database: dbConfig.Database,
+		SslMode:  dbConfig.SslMode,
+	})
+	db, err := con.Connect()
+	if err != nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	start := time.Now()
+	go func(db metadata.DataSource, dbConfig Database, start time.Time) {
+		if dbConfig.Query != "" && strings.Contains(dbConfig.Query, "LIMIT") {
+			IndexFromDB(db, dbConfig, start)
+		} else {
+			IndexFromDBWithPaginate(db, dbConfig, start)
+		}
+	}(db, dbConfig, start)
+	Success(ctx, consts.StatusOK, utils.H{
+		"index_key":  dbConfig.IndexKey,
+		"started_at": start,
+	}, "Indexing started in background")
+}
+
 func SearchRoutes(route route.IRouter) route.IRouter {
 	route.POST("/new", controller.NewEngine)
+	route.POST("/database/index", controller.IndexFromDatabase)
 	route.POST("/index/:type/batch", controller.IndexInBatch)
 	route.POST("/index/:type", controller.Index)
 	route.POST("/search/:type", controller.Search)

@@ -48,6 +48,23 @@ func (s *FlyDB[K, V]) Del(key K) error {
 	return s.client.Delete([]byte(k))
 }
 
+// Sample removes a key-value pair from disk
+func (s *FlyDB[K, V]) Sample() (map[string]V, error) {
+	value := make(map[string]V)
+	it := s.client.Items()
+	for i := 0; i < 20; i++ {
+		key, val, err := it.Next()
+		if err == flydb.ErrIterationDone {
+			break
+		}
+		data, exists := s.GetData(val)
+		if exists {
+			value[string(key)] = data
+		}
+	}
+	return value, nil
+}
+
 // Close removes a key-value pair from disk
 func (s *FlyDB[K, V]) Close() error {
 	return s.client.Close()
@@ -76,6 +93,24 @@ func (s *FlyDB[K, V]) Get(key K) (V, bool) {
 			return *new(V), false
 		}
 		err = msgpack.Unmarshal(file, &value)
+	}
+	if err != nil {
+		return *new(V), false
+	}
+	return value, true
+}
+
+func (s *FlyDB[K, V]) GetData(val []byte) (V, bool) {
+	var value V
+	var err error
+	if s.compress {
+		jsonData, err := lib.Decompress(val)
+		if err != nil {
+			return *new(V), false
+		}
+		err = msgpack.Unmarshal(jsonData, &value)
+	} else {
+		err = msgpack.Unmarshal(val, &value)
 	}
 	if err != nil {
 		return *new(V), false

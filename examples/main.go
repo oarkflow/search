@@ -13,6 +13,7 @@ import (
 )
 
 func main() {
+	// web.StartServer("0.0.0.0:8001")
 	httpTest()
 	// testMap()
 	// testStruct()
@@ -20,21 +21,21 @@ func main() {
 }
 
 func httpTest() {
-
-	/*db, _ := search.New[map[string]any](&search.Config{
+	db, _ := search.New[map[string]any](&search.Config{
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
 			EnableStemming:  true,
 			EnableStopWords: true,
 		},
-		Key: "icd",
+		Key:       "icd",
+		ResetPath: true,
 	})
 	data := readFileAsMap("icd10_codes.json")
 	errs := db.InsertBatch(data, 1000)
 	if len(errs) > 0 {
 		panic(errs)
 	}
-	search.AddEngine("icd", db)*/
+	search.AddEngine("icd", db)
 	web.StartServer("0.0.0.0:8001")
 }
 

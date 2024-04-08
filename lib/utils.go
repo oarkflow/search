@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,8 +13,10 @@ func IsEqual(dataVal, val any) bool {
 		switch gtVal := dataVal.(type) {
 		case string:
 			return strings.EqualFold(val, gtVal)
+		default:
+			gtVal1 := fmt.Sprint(gtVal)
+			return strings.EqualFold(val, gtVal1)
 		}
-		return false
 	case int:
 		switch gtVal := dataVal.(type) {
 		case int:
@@ -22,6 +25,12 @@ func IsEqual(dataVal, val any) bool {
 			return val == int(gtVal)
 		case float64:
 			return float64(val) == gtVal
+		case string:
+			v, err := strconv.Atoi(gtVal)
+			if err != nil {
+				return false
+			}
+			return val == v
 		}
 		return false
 	case float64:
@@ -32,6 +41,12 @@ func IsEqual(dataVal, val any) bool {
 			return val == float64(gtVal)
 		case float64:
 			return val == gtVal
+		case string:
+			v, err := strconv.ParseFloat(gtVal, 32)
+			if err != nil {
+				return false
+			}
+			return val == v
 		}
 		return false
 	case bool:
@@ -46,8 +61,11 @@ func IsEqual(dataVal, val any) bool {
 			return val == v
 		}
 		return false
+	default:
+		dataVal1 := fmt.Sprint(dataVal)
+		val1 := fmt.Sprint(val)
+		return strings.EqualFold(dataVal1, val1)
 	}
-	return false
 }
 
 // Intersection computes the list of values that are the intersection of all the slices.

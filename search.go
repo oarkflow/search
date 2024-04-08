@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -115,6 +116,7 @@ type Config struct {
 	TokenizerConfig *tokenizer.Config
 	IndexKeys       []string        `json:"index_keys"`
 	FieldsToStore   []string        `json:"fields_to_store"`
+	FieldsToExclude []string        `json:"fields_to_exclude"`
 	Rules           map[string]bool `json:"rules"`
 	SliceField      string          `json:"slice_field"`
 	Path            string          `json:"path"`
@@ -228,6 +230,25 @@ func (db *Engine[Schema]) Insert(doc Schema, lang ...tokenizer.Language) (Record
 				switch k := k.(type) {
 				case string:
 					if !slices.Contains(db.cfg.FieldsToStore, k) {
+						delete(doc, k)
+					}
+				}
+			}
+		}
+	}
+	if len(db.cfg.FieldsToExclude) > 0 {
+		switch doc := any(doc).(type) {
+		case map[string]any:
+			for k := range doc {
+				if slices.Contains(db.cfg.FieldsToExclude, k) {
+					delete(doc, k)
+				}
+			}
+		case map[any]any:
+			for k := range doc {
+				switch k := k.(type) {
+				case string:
+					if slices.Contains(db.cfg.FieldsToExclude, k) {
 						delete(doc, k)
 					}
 				}
@@ -480,6 +501,17 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 		return Result[Schema]{}, err
 	}
 	results := make(Hits[Schema], 0)
+	if len(allIdScores) == 0 && params.Query == "" {
+		sampleDocs, err := db.documents.Sample()
+		if err != nil {
+			return Result[Schema]{}, err
+		}
+		for k, doc := range sampleDocs {
+			parseInt, _ := strconv.ParseInt(k, 10, 64)
+			results = append(results, Hit[Schema]{Id: parseInt, Data: doc, Score: 0})
+		}
+		return db.prepareResult(results, params)
+	}
 	cache := make(map[int64]float64)
 	defer func() {
 		results = nil

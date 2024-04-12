@@ -648,24 +648,18 @@ func (db *Engine[Schema]) deindexDocument(id int64, document map[string]string, 
 }
 
 func (db *Engine[Schema]) getFieldsFromMap(obj map[string]any) map[string]string {
-	fields := make(map[string]string)
-	rules := make(map[string]bool)
-	if db.rules != nil {
-		rules = db.rules
-	}
+	fields := make(map[string]string, len(obj)) // Pre-allocate map size (optional)
+	rules := db.rules                           // Avoid unnecessary copy if rules exist
+
 	for field, val := range obj {
-		if reflect.TypeOf(field).Kind() == reflect.Map {
+		if kind := reflect.TypeOf(field).Kind(); kind == reflect.Map {
 			for key, value := range db.flattenSchema(val, field) {
 				fields[key] = value
 			}
+		} else if rules != nil && rules[field] {
+			fields[field] = fmt.Sprintf("%v", val)
 		} else {
-			if len(rules) > 0 {
-				if canIndex, ok := rules[field]; ok && canIndex {
-					fields[field] = fmt.Sprintf("%v", val)
-				}
-			} else {
-				fields[field] = fmt.Sprintf("%v", val)
-			}
+			fields[field] = fmt.Sprintf("%v", val)
 		}
 	}
 	return fields

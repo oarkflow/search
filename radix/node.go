@@ -39,13 +39,10 @@ func (n *node) removeChild(child *node) {
 
 func (n *node) addRecordInfo(info RecordInfo) {
 	num := len(n.infos)
-	idx := sort.Search(num, func(i int) bool {
-		return n.infos[i].Id >= info.Id
-	})
+	i := sort.Search(num, func(i int) bool { return n.infos[i].Id >= info.Id })
 
-	n.infos = append(n.infos, RecordInfo{})
-	copy(n.infos[idx+1:], n.infos[idx:])
-	n.infos[idx] = info
+	// Combine slice growth and element insertion
+	n.infos = append(n.infos[:i], append([]RecordInfo{info}, n.infos[i:]...)...)
 }
 
 func (n *node) removeRecordInfo(id int64) bool {

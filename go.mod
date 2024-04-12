@@ -4,15 +4,15 @@ go 1.22.0
 
 require (
 	github.com/gookit/color v1.5.4
-	github.com/klauspost/compress v1.17.7
+	github.com/klauspost/compress v1.17.8
 	github.com/kljensen/snowball v0.9.0
-	github.com/oarkflow/flydb v0.0.0-20240406152654-9bccddc99c73
+	github.com/oarkflow/flydb v0.0.0-20240406182942-33e06faab72f
 	github.com/oarkflow/frame v0.0.67
 	github.com/oarkflow/maps v0.0.0-20240406152114-fc5a94538f01
 	github.com/oarkflow/metadata v0.0.49
 	github.com/oarkflow/squealx v0.0.8
 	github.com/oarkflow/xid v1.2.5
-	github.com/shamaton/msgpack/v2 v2.2.0
+	github.com/vmihailenco/msgpack/v5 v5.4.1
 	golang.org/x/text v0.14.0
 )
 
@@ -42,10 +42,11 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/toorop/go-dkim v0.0.0-20240103092955-90b7d1423f92 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xhit/go-simple-mail/v2 v2.16.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/crypto v0.22.0 // indirect
-	golang.org/x/exp v0.0.0-20240404231335-c0f41cb1a7a0 // indirect
+	golang.org/x/exp v0.0.0-20240409090435-93d18d7e34b8 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.19.0 // indirect
 	golang.org/x/time v0.5.0 // indirect

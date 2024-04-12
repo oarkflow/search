@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/oarkflow/flydb"
-	"github.com/shamaton/msgpack/v2"
+	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/oarkflow/search/lib"
 )

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/shamaton/msgpack/v2"
+	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/oarkflow/search/lib"
 )

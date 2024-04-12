@@ -38,20 +38,24 @@ func NewIndex() *Index {
 }
 
 func (idx *Index) Insert(params *IndexParams) {
-	tokensCount := lib.Count(params.Tokens)
+	totalTokens := len(params.Tokens)
+	tokenOccurrences := make(map[string]int, totalTokens) // Pre-allocate map size
 
-	for token, count := range tokensCount {
-		tokenFrequency := float64(count) / float64(len(params.Tokens))
+	for _, token := range params.Tokens {
+		tokenOccurrences[token]++
+	}
+
+	for token, count := range tokenOccurrences {
+		tokenFrequency := float64(count) / float64(totalTokens)
 		idx.data.Insert(&radix.InsertParams{
 			Id:            params.Id,
 			Word:          token,
 			TermFrequency: tokenFrequency,
 		})
-		idx.tokenOccurrences[token]++
 	}
 
-	idx.avgFieldLength = (idx.avgFieldLength*float64(params.DocsCount-1) + float64(len(params.Tokens))) / float64(params.DocsCount)
-	idx.fieldLengths[params.Id] = len(params.Tokens)
+	idx.avgFieldLength = (idx.avgFieldLength*float64(params.DocsCount-1) + float64(totalTokens)) / float64(params.DocsCount)
+	idx.fieldLengths[params.Id] = totalTokens
 }
 
 func (idx *Index) Delete(params *IndexParams) {

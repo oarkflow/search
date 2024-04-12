@@ -27,15 +27,22 @@ func httpTest() {
 			EnableStemming:  true,
 			EnableStopWords: true,
 		},
-		Key:       "icd",
-		ResetPath: true,
+		Key:           "icd",
+		ResetPath:     true,
+		IndexKeys:     []string{"charge_type", "client_internal_code", "client_proc_desc", "cpt_hcpcs_code", "work_item_id"},
+		FieldsToStore: []string{"charge_type", "client_internal_code", "client_proc_desc", "cpt_hcpcs_code", "work_item_id"},
 	})
-	data := readFileAsMap("icd10_codes.json")
-	errs := db.InsertBatch(data, 1000)
-	if len(errs) > 0 {
-		panic(errs)
+	data := readFileAsMap("cpt_codes.json")
+	start := time.Now()
+	for _, d := range data {
+		_, errs := db.Insert(d)
+		if errs != nil {
+			panic(errs)
+		}
 	}
 	search.AddEngine("icd", db)
+	fmt.Println("Total Documents", db.DocumentLen())
+	fmt.Println("Indexing took", time.Since(start))
 	web.StartServer("0.0.0.0:8001")
 }
 
@@ -110,7 +117,7 @@ func testMap() {
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()
 	s, err := db.Search(&search.Params{
-		Query: "food",
+		Query: "QUANTITATIVE",
 	})
 	if err != nil {
 		panic(err)

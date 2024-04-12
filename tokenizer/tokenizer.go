@@ -12,25 +12,13 @@ import (
 )
 
 const (
-	ENGLISH   Language = "en"
-	FRENCH    Language = "fr"
-	HUNGARIAN Language = "hu"
-	NORWEGIAN Language = "no"
-	RUSSIAN   Language = "ru"
-	SPANISH   Language = "es"
-	SWEDISH   Language = "sv"
+	ENGLISH Language = "en"
 )
 
-var Languages = []Language{ENGLISH, FRENCH, HUNGARIAN, NORWEGIAN, RUSSIAN, SPANISH, SWEDISH}
+var Languages = []Language{ENGLISH}
 
 var splitRules = map[Language]*regexp.Regexp{
-	ENGLISH:   regexp.MustCompile(`[^A-Za-zàèéìòóù0-9_'-:.]`),
-	FRENCH:    regexp.MustCompile(`[^a-z0-9äâàéèëêïîöôùüûœç-]`),
-	HUNGARIAN: regexp.MustCompile(`[^a-z0-9áéíóöőúüűÁÉÍÓÖŐÚÜŰ]`),
-	NORWEGIAN: regexp.MustCompile(`[^a-z0-9_æøåÆØÅäÄöÖüÜ]`),
-	RUSSIAN:   regexp.MustCompile(`[^a-z0-9а-яА-ЯёЁ]`),
-	SPANISH:   regexp.MustCompile(`[^a-z0-9A-Zá-úÁ-ÚñÑüÜ]`),
-	SWEDISH:   regexp.MustCompile(`[^a-z0-9_åÅäÄöÖüÜ-]`),
+	ENGLISH: regexp.MustCompile(`[^A-Za-zàèéìòóù0-9_'-:.]`),
 }
 
 var normalizer = transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)

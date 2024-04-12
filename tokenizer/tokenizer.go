@@ -50,14 +50,48 @@ func IsSupportedLanguage(language Language) bool {
 	return ok
 }
 
-func Tokenize(params *TokenizeParams, config *Config) ([]string, error) {
-	splitRule, ok := splitRules[params.Language]
-	if !ok {
-		return nil, LanguageNotSupported
+func splitSentence(text string) []string {
+	// Define separators (space, punctuation)
+	separators := map[byte]bool{
+		' ': true,
+		'.': true,
+		',': true,
+		';': true,
+		'!': true,
+		'?': true,
+		'-': true, // Optional for hyphenated words
+		// Add more separators as needed
 	}
 
+	var words []string
+	start := 0
+
+	for i := 0; i < len(text); i++ {
+		if isSeparator(text[i], separators) {
+			// Found a separator, append the current word
+			if start < i {
+				words = append(words, text[start:i])
+			}
+			start = i + 1
+		}
+	}
+
+	// Append the last word if it exists
+	if start < len(text) {
+		words = append(words, text[start:])
+	}
+
+	return words
+}
+
+func isSeparator(char byte, separators map[byte]bool) bool {
+	_, ok := separators[char]
+	return ok
+}
+
+func Tokenize(params *TokenizeParams, config *Config) ([]string, error) {
 	params.Text = strings.ToLower(params.Text)
-	splitText := splitRule.Split(params.Text, -1)
+	splitText := splitSentence(params.Text)
 	tokens := make([]string, 0)
 	uniqueTokens := make(map[string]struct{})
 	for _, token := range splitText {

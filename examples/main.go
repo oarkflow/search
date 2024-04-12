@@ -14,8 +14,8 @@ import (
 
 func main() {
 	// web.StartServer("0.0.0.0:8001")
-	httpTest()
-	// testMap()
+	// httpTest()
+	testMap()
 	// testStruct()
 	// testString()
 }
@@ -94,7 +94,7 @@ func memoryUsage() float64 {
 }
 
 func testMap() {
-	data := readFileAsMap("icd10_codes.json")
+	icds := readFileAsMap("icd10_codes.json")
 	db, _ := search.New[map[string]any](&search.Config{
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
@@ -103,14 +103,9 @@ func testMap() {
 		},
 	})
 	var startTime = time.Now()
-	errs := db.InsertBatch(data, 1000)
-	if len(errs) > 0 {
-		panic(errs)
+	for _, icd := range icds {
+		db.Insert(icd)
 	}
-	/*err := db.Compress()
-	if err != nil {
-		panic(err)
-	}*/
 	fmt.Println("Total Documents", db.DocumentLen())
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()

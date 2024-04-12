@@ -3,11 +3,14 @@ module github.com/oarkflow/search
 go 1.22.0
 
 require (
+	github.com/gookit/color v1.5.4
 	github.com/klauspost/compress v1.17.7
 	github.com/kljensen/snowball v0.9.0
 	github.com/oarkflow/flydb v0.0.0-20240406152654-9bccddc99c73
 	github.com/oarkflow/frame v0.0.67
 	github.com/oarkflow/maps v0.0.0-20240406152114-fc5a94538f01
+	github.com/oarkflow/metadata v0.0.49
+	github.com/oarkflow/squealx v0.0.8
 	github.com/oarkflow/xid v1.2.5
 	github.com/shamaton/msgpack/v2 v2.2.0
 	golang.org/x/text v0.14.0
@@ -23,7 +26,6 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
-	github.com/gookit/color v1.5.4 // indirect
 	github.com/hetiansu5/urlquery v1.2.7 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20231201235250-de7065d80cb9 // indirect
@@ -35,10 +37,8 @@ require (
 	github.com/oarkflow/errors v0.0.6 // indirect
 	github.com/oarkflow/json v0.0.5 // indirect
 	github.com/oarkflow/log v1.0.74 // indirect
-	github.com/oarkflow/metadata v0.0.49 // indirect
 	github.com/oarkflow/pkg v0.1.38 // indirect
 	github.com/oarkflow/protocol v0.0.15 // indirect
-	github.com/oarkflow/squealx v0.0.8 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/toorop/go-dkim v0.0.0-20240103092955-90b7d1423f92 // indirect

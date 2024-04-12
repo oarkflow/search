@@ -90,26 +90,17 @@ func isSeparator(char byte, separators map[byte]bool) bool {
 }
 
 func Tokenize(params *TokenizeParams, config *Config) ([]string, error) {
-	/*splitRule, ok := splitRules[params.Language]
-	if !ok {
-		return nil, LanguageNotSupported
-	}*/
-
-	// Lowercase and split text in one step
-	lowerText := strings.ToLower(params.Text)
-	// splitText := splitRule.Split(lowerText, -1)
-	splitText := splitSentence(lowerText)
-	tokens := make([]string, 0, len(splitText))               // Pre-allocate based on split length (optional)
-	uniqueTokens := make(map[string]struct{}, len(splitText)) // Pre-allocate map size (optional)
-
+	params.Text = strings.ToLower(params.Text)
+	splitText := splitSentence(params.Text)
+	tokens := make([]string, 0)
+	uniqueTokens := make(map[string]struct{})
 	for _, token := range splitText {
 		normParams := normalizeParams{
 			token:    token,
 			language: params.Language,
 		}
-		normToken := normalizeToken(&normParams, config)
-		if normToken != "" {
-			if _, ok := uniqueTokens[normToken]; !ok || params.AllowDuplicates {
+		if normToken := normalizeToken(&normParams, config); normToken != "" {
+			if _, ok := uniqueTokens[normToken]; (!ok && !params.AllowDuplicates) || params.AllowDuplicates {
 				uniqueTokens[normToken] = struct{}{}
 				tokens = append(tokens, normToken)
 			}

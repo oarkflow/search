@@ -1,5 +1,7 @@
 .idea
-examples/storage
-examples/icd10_codes.json
+storage
+*.json
 tmp
 bin
+*.out
+*.test

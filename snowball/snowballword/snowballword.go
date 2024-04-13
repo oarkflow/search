@@ -1,9 +1,3 @@
-/*
-This package defines a SnowballWord struct that is used
-to encapsulate most of the "state" variables we must track
-when stemming a word.  The SnowballWord struct also has
-a few methods common to stemming in a variety of languages.
-*/
 package snowballword
 
 import (
@@ -13,26 +7,19 @@ import (
 
 // SnowballWord represents a word that is going to be stemmed.
 type SnowballWord struct {
-
-	// A slice of runes
-	RS []rune
-
-	// The index in RS where the R1 region begins
+	RS      []rune
 	R1start int
-
-	// The index in RS where the R2 region begins
 	R2start int
-
-	// The index in RS where the RV region begins
 	RVstart int
 }
 
 // Create a new SnowballWord struct
 func New(in string) (word *SnowballWord) {
+	dataLen := len([]rune(in))
 	word = &SnowballWord{RS: []rune(in)}
-	word.R1start = len(word.RS)
-	word.R2start = len(word.RS)
-	word.RVstart = len(word.RS)
+	word.R1start = dataLen
+	word.R2start = dataLen
+	word.RVstart = dataLen
 	return
 }
 

@@ -2,6 +2,7 @@ package radix
 
 import (
 	"sort"
+	"sync"
 
 	"github.com/oarkflow/search/lib"
 )
@@ -14,15 +15,23 @@ type RecordInfo struct {
 type node struct {
 	subword  []rune
 	children map[rune]*node
-	infos    []RecordInfo
+	infos    []*RecordInfo
+}
+
+var nodePool sync.Pool
+
+func init() {
+	nodePool.New = func() interface{} {
+		return &node{}
+	}
 }
 
 func newNode(subword []rune) *node {
-	return &node{
-		subword:  subword,
-		children: make(map[rune]*node),
-		infos:    make([]RecordInfo, 0),
-	}
+	n := nodePool.Get().(*node)
+	n.subword = subword
+	n.children = make(map[rune]*node)
+	n.infos = make([]*RecordInfo, 0)
+	return n
 }
 
 func (n *node) addChild(child *node) {
@@ -37,12 +46,12 @@ func (n *node) removeChild(child *node) {
 	}
 }
 
-func (n *node) addRecordInfo(info RecordInfo) {
+func (n *node) addRecordInfo(info *RecordInfo) {
 	num := len(n.infos)
 	i := sort.Search(num, func(i int) bool { return n.infos[i].Id >= info.Id })
 
 	// Combine slice growth and element insertion
-	n.infos = append(n.infos[:i], append([]RecordInfo{info}, n.infos[i:]...)...)
+	n.infos = append(n.infos[:i], append([]*RecordInfo{info}, n.infos[i:]...)...)
 }
 
 func (n *node) removeRecordInfo(id int64) bool {
@@ -53,15 +62,15 @@ func (n *node) removeRecordInfo(id int64) bool {
 
 	if idx < num && n.infos[idx].Id == id {
 		copy(n.infos[idx:], n.infos[idx+1:])
-		n.infos[len(n.infos)-1] = RecordInfo{}
+		n.infos[len(n.infos)-1] = &RecordInfo{}
 		n.infos = n.infos[:len(n.infos)-1]
 		return true
 	}
 	return false
 }
 
-func findAllRecordInfos(n *node, word []rune, term []rune, tolerance int, exact bool) []RecordInfo {
-	var results []RecordInfo
+func findAllRecordInfos(n *node, word []rune, term []rune, tolerance int, exact bool) []*RecordInfo {
+	var results []*RecordInfo
 	stack := [][2]interface{}{{n, word}}
 
 	for len(stack) > 0 {

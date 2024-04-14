@@ -1,6 +1,8 @@
 package radix
 
 import (
+	"sync"
+
 	"github.com/oarkflow/search/lib"
 )
 
@@ -34,13 +36,25 @@ func (t *Trie) Len() int {
 	return t.length
 }
 
+var recInfo sync.Pool
+
+func init() {
+	recInfo.New = func() interface{} {
+		return &RecordInfo{}
+	}
+}
+
+func newRec(id int64, feq float64) *RecordInfo {
+	n := recInfo.Get().(*RecordInfo)
+	n.Id = id
+	n.TermFrequency = feq
+	return n
+}
+
 func (t *Trie) Insert(params *InsertParams) {
 	word := []rune(params.Word)
 
-	newInfo := RecordInfo{
-		Id:            params.Id,
-		TermFrequency: params.TermFrequency,
-	}
+	newInfo := newRec(params.Id, params.TermFrequency)
 	currNode := t.root
 
 	for i := 0; i < len(word); {
@@ -145,7 +159,7 @@ func (t *Trie) Delete(params *DeleteParams) {
 	}
 }
 
-func (t *Trie) Find(params *FindParams) []RecordInfo {
+func (t *Trie) Find(params *FindParams) []*RecordInfo {
 	term := []rune(params.Term)
 	currNode := t.root
 	currNodeWord := currNode.subword
@@ -153,34 +167,32 @@ func (t *Trie) Find(params *FindParams) []RecordInfo {
 	for i := 0; i < len(term); {
 		char := term[i]
 		wordAtIndex := term[i:]
-
-		if currChild, ok := currNode.children[char]; ok {
-			commonPrefix, _ := lib.CommonPrefix(currChild.subword, wordAtIndex)
-			commonPrefixLength := len(commonPrefix)
-			subwordLength := len(currChild.subword)
-			wordLength := len(wordAtIndex)
-
-			// if the common prefix length is equal to the node subword length it means they are a match
-			// if the common prefix is equal to the term means it is contained in the node
-			if commonPrefixLength != wordLength && commonPrefixLength != subwordLength {
-				if params.Tolerance > 0 {
-					break
-				}
-				return []RecordInfo{}
-			}
-
-			// skip to the next divergent character
-			i += subwordLength
-
-			// navigate in the child node
-			currNode = currChild
-
-			// update the current node word
-			currNodeWord = append(currNodeWord, currChild.subword...)
-		} else {
-			// if the node for the curr character doesn't exist abort the deletion
-			return []RecordInfo{}
+		currChild, ok := currNode.children[char]
+		if !ok {
+			return nil
 		}
+		commonPrefix, _ := lib.CommonPrefix(currChild.subword, wordAtIndex)
+		commonPrefixLength := len(commonPrefix)
+		subwordLength := len(currChild.subword)
+		wordLength := len(wordAtIndex)
+
+		// if the common prefix length is equal to the node subword length it means they are a match
+		// if the common prefix is equal to the term means it is contained in the node
+		if commonPrefixLength != wordLength && commonPrefixLength != subwordLength {
+			if params.Tolerance > 0 {
+				break
+			}
+			return nil
+		}
+
+		// skip to the next divergent character
+		i += subwordLength
+
+		// navigate in the child node
+		currNode = currChild
+
+		// update the current node word
+		currNodeWord = append(currNodeWord, currChild.subword...)
 	}
 
 	return findAllRecordInfos(currNode, currNodeWord, term, params.Tolerance, params.Exact)

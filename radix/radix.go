@@ -35,11 +35,7 @@ func (t *Trie) Len() int {
 }
 
 func (t *Trie) Insert(params *InsertParams) {
-	// Pre-allocate word slice (adjust size based on expected word length)
-	word := make([]rune, 0, 20) // Example: Assuming average word length is 20 runes
-	for _, r := range params.Word {
-		word = append(word, r)
-	}
+	word := []rune(params.Word)
 
 	newInfo := RecordInfo{
 		Id:            params.Id,

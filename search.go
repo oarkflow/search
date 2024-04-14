@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,9 +11,10 @@ import (
 	"sort"
 	"strconv"
 	"sync"
-	"time"
 
+	"github.com/devchat-ai/gopool"
 	"github.com/oarkflow/xid"
+	gpool "github.com/rocketlaunchr/go-pool"
 
 	"github.com/oarkflow/maps"
 
@@ -286,47 +286,22 @@ func (db *Engine[Schema]) InsertBatch(docs []Schema, batchSize int, lang ...toke
 	if docLen == 0 {
 		return nil
 	}
-	if len(db.indexKeys) == 0 {
-		keys := DocFields(docs[0])
-		db.addIndexes(keys)
-	}
-	batchCount := int(math.Ceil(float64(len(docs)) / float64(batchSize)))
-	docsChan := make(chan Schema)
-	errsChan := make(chan error)
+	var errs []error
+	pool := gopool.NewGoPool(batchSize, gopool.WithErrorCallback(func(err error) {
+		errs = append(errs, err)
+	}))
+	defer pool.Release()
 	language := tokenizer.ENGLISH
 	if len(lang) > 0 {
 		language = lang[0]
 	}
-	var wg sync.WaitGroup
-
-	go func(docs []Schema) {
-		for _, doc := range docs {
-			docsChan <- doc
-		}
-		close(docsChan)
-	}(docs)
-
-	for i := 0; i < batchCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for doc := range docsChan {
-				if _, err := db.Insert(doc, language); err != nil {
-					errsChan <- err
-				}
-			}
-		}()
+	for _, doc := range docs {
+		pool.AddTask(func() (interface{}, error) {
+			db.Insert(doc, language)
+			return nil, nil
+		})
 	}
-
-	go func() {
-		wg.Wait()
-		close(errsChan)
-	}()
-
-	errs := make([]error, 0)
-	for err := range errsChan {
-		errs = append(errs, err)
-	}
+	pool.Wait()
 	return errs
 }
 
@@ -609,21 +584,36 @@ func (db *Engine[Schema]) getDocuments(scores map[int64]float64) Hits[Schema] {
 	return results
 }
 
+var iPool = gpool.New(20) // maximum of 5 items in pool
+var tPool = gpool.New(20) // maximum of 5 items in pool
+func init() {
+	iPool.SetFactory(func() any {
+		return &IndexParams{}
+	})
+	tPool.SetFactory(func() any {
+		return &tokenizer.TokenizeParams{}
+	})
+}
+
 func (db *Engine[Schema]) indexDocument(id int64, document map[string]string, language tokenizer.Language) {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
-		tokens, _ := tokenizer.Tokenize(&tokenizer.TokenizeParams{
-			Text:            document[propName],
-			Language:        language,
-			AllowDuplicates: true,
-		}, db.tokenizerConfig)
+		it := tPool.Borrow()
+		defer it.Return()
+		token := it.Item.(*tokenizer.TokenizeParams)
+		token.Text = document[propName]
+		token.Language = language
+		token.AllowDuplicates = true
+		tokens, _ := tokenizer.Tokenize(token, db.tokenizerConfig)
 
-		index.Insert(&IndexParams{
-			Id:        id,
-			Tokens:    tokens,
-			DocsCount: db.DocumentLen(),
-		})
+		item := iPool.Borrow()
+		defer item.Return()
+		idx := item.Item.(*IndexParams)
+		idx.Id = id
+		idx.Tokens = tokens
+		idx.DocsCount = db.DocumentLen()
+		index.Insert(idx)
 		return true
 	})
 }
@@ -647,19 +637,22 @@ func (db *Engine[Schema]) deindexDocument(id int64, document map[string]string, 
 	})
 }
 
-func (db *Engine[Schema]) getFieldsFromMap(obj map[string]any) map[string]string {
-	fields := make(map[string]string, len(obj)) // Pre-allocate map size (optional)
-	rules := db.rules                           // Avoid unnecessary copy if rules exist
+func (db *Engine[Schema]) getFieldsFromMap(obj any) map[string]string {
+	fields := make(map[string]string, 0) // Pre-allocate map size (optional)
+	switch obj := obj.(type) {
+	case map[string]any:
+		rules := db.rules // Avoid unnecessary copy if rules exist
 
-	for field, val := range obj {
-		if kind := reflect.TypeOf(field).Kind(); kind == reflect.Map {
-			for key, value := range db.flattenSchema(val, field) {
-				fields[key] = value
+		for field, val := range obj {
+			if kind := reflect.TypeOf(field).Kind(); kind == reflect.Map {
+				for key, value := range db.flattenSchema(val, field) {
+					fields[key] = value
+				}
+			} else if rules != nil && rules[field] {
+				fields[field] = fmt.Sprintf("%v", val)
+			} else {
+				fields[field] = fmt.Sprintf("%v", val)
 			}
-		} else if rules != nil && rules[field] {
-			fields[field] = fmt.Sprintf("%v", val)
-		} else {
-			fields[field] = fmt.Sprintf("%v", val)
 		}
 	}
 	return fields
@@ -710,23 +703,14 @@ func (db *Engine[Schema]) flattenSchema(obj any, prefix ...string) map[string]st
 		return nil
 	}
 	fields := make(map[string]string)
-	if reflect.TypeOf(obj).Kind() == reflect.Struct {
+	switch reflect.TypeOf(obj).Kind() {
+	case reflect.Struct:
 		return db.getFieldsFromStruct(obj, prefix...)
-	} else {
-		switch obj := obj.(type) {
-		case string, bool, time.Time, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
-			fields[db.sliceField] = fmt.Sprintf("%v", obj)
-			return fields
-		case map[string]any:
-			return db.getFieldsFromMap(obj)
-		default:
-			switch obj := obj.(type) {
-			case map[string]any:
-				return db.getFieldsFromMap(obj)
-			default:
-				return db.getFieldsFromStruct(obj, prefix...)
-			}
-		}
+	case reflect.Map:
+		return db.getFieldsFromMap(obj)
+	default:
+		fields[db.sliceField] = fmt.Sprintf("%v", obj)
+		return fields
 	}
 }
 

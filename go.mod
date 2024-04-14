@@ -3,6 +3,7 @@ module github.com/oarkflow/search
 go 1.22.0
 
 require (
+	github.com/devchat-ai/gopool v0.6.2
 	github.com/gookit/color v1.5.4
 	github.com/klauspost/compress v1.17.8
 	github.com/kljensen/snowball v0.9.0
@@ -12,6 +13,7 @@ require (
 	github.com/oarkflow/metadata v0.0.49
 	github.com/oarkflow/squealx v0.0.8
 	github.com/oarkflow/xid v1.2.5
+	github.com/rocketlaunchr/go-pool v0.0.0-20210120055323-2292025b22ae
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	golang.org/x/text v0.14.0
 )

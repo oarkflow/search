@@ -108,16 +108,15 @@ func testMap() {
 			EnableStemming:  true,
 			EnableStopWords: true,
 		},
+		IndexKeys: search.DocFields(icds[0]),
 	})
 	var startTime = time.Now()
-	for _, icd := range icds {
-		db.Insert(icd)
-	}
+	db.InsertBatch(icds, 100)
 	fmt.Println("Total Documents", db.DocumentLen())
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()
 	s, err := db.Search(&search.Params{
-		Query: "QUANTITATIVE",
+		Query: "presence",
 	})
 	if err != nil {
 		panic(err)

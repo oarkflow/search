@@ -112,18 +112,11 @@ func Tokenize(params *TokenizeParams, config *Config) ([]string, error) {
 
 func normalizeToken(params *normalizeParams, config *Config) string {
 	token := params.token
-
 	if _, ok := stopWords[params.language][token]; config.EnableStopWords && ok {
 		return ""
 	}
-
 	if stem, ok := stems[params.language]; config.EnableStemming && ok {
 		token = stem(token, false)
 	}
-
-	/*if normToken, _, err := transform.String(normalizer, token); err == nil {
-		return normToken
-	}*/
-
 	return token
 }

@@ -14,7 +14,6 @@ import (
 
 	"github.com/devchat-ai/gopool"
 	"github.com/oarkflow/xid"
-	gpool "github.com/rocketlaunchr/go-pool"
 
 	"github.com/oarkflow/maps"
 
@@ -584,36 +583,21 @@ func (db *Engine[Schema]) getDocuments(scores map[int64]float64) Hits[Schema] {
 	return results
 }
 
-var iPool = gpool.New(20) // maximum of 5 items in pool
-var tPool = gpool.New(20) // maximum of 5 items in pool
-func init() {
-	iPool.SetFactory(func() any {
-		return &IndexParams{}
-	})
-	tPool.SetFactory(func() any {
-		return &tokenizer.TokenizeParams{}
-	})
-}
-
 func (db *Engine[Schema]) indexDocument(id int64, document map[string]string, language tokenizer.Language) {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
-		it := tPool.Borrow()
-		defer it.Return()
-		token := it.Item.(*tokenizer.TokenizeParams)
-		token.Text = document[propName]
-		token.Language = language
-		token.AllowDuplicates = true
-		tokens, _ := tokenizer.Tokenize(token, db.tokenizerConfig)
+		tokens, _ := tokenizer.Tokenize(&tokenizer.TokenizeParams{
+			Text:            document[propName],
+			Language:        language,
+			AllowDuplicates: true,
+		}, db.tokenizerConfig)
 
-		item := iPool.Borrow()
-		defer item.Return()
-		idx := item.Item.(*IndexParams)
-		idx.Id = id
-		idx.Tokens = tokens
-		idx.DocsCount = db.DocumentLen()
-		index.Insert(idx)
+		index.Insert(&IndexParams{
+			Id:        id,
+			Tokens:    tokens,
+			DocsCount: db.DocumentLen(),
+		})
 		return true
 	})
 }

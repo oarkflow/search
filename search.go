@@ -621,22 +621,24 @@ func (db *Engine[Schema]) deindexDocument(id int64, document map[string]string, 
 	})
 }
 
-func (db *Engine[Schema]) getFieldsFromMap(obj any) map[string]string {
-	fields := make(map[string]string, 0) // Pre-allocate map size (optional)
-	switch obj := obj.(type) {
-	case map[string]any:
-		rules := db.rules // Avoid unnecessary copy if rules exist
+func getVal(fields map[string]string, field string, val any) {
+	if str, ok := val.(string); ok {
+		fields[field] = str
+		return
+	}
+	fields[field] = fmt.Sprint(val)
+}
 
-		for field, val := range obj {
-			if kind := reflect.TypeOf(field).Kind(); kind == reflect.Map {
-				for key, value := range db.flattenSchema(val, field) {
-					fields[key] = value
-				}
-			} else if rules != nil && rules[field] {
-				fields[field] = fmt.Sprintf("%v", val)
-			} else {
-				fields[field] = fmt.Sprintf("%v", val)
-			}
+func (db *Engine[Schema]) getFieldsFromMap(obj any) map[string]string {
+	fields := make(map[string]string)
+	m, ok := obj.(map[string]any)
+	if !ok {
+		return fields
+	}
+	rules := db.rules
+	for field, val := range m {
+		if rules == nil || rules[field] {
+			getVal(fields, field, val)
 		}
 	}
 	return fields
@@ -686,15 +688,15 @@ func (db *Engine[Schema]) flattenSchema(obj any, prefix ...string) map[string]st
 	if obj == nil {
 		return nil
 	}
-	fields := make(map[string]string)
 	switch reflect.TypeOf(obj).Kind() {
 	case reflect.Struct:
 		return db.getFieldsFromStruct(obj, prefix...)
 	case reflect.Map:
 		return db.getFieldsFromMap(obj)
 	default:
-		fields[db.sliceField] = fmt.Sprintf("%v", obj)
-		return fields
+		return map[string]string{
+			db.sliceField: fmt.Sprint(obj),
+		}
 	}
 }
 

@@ -9,6 +9,9 @@ import (
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/oarkflow/search/lib"
+	"github.com/oarkflow/search/snowball/english"
 )
 
 const (
@@ -50,47 +53,37 @@ func IsSupportedLanguage(language Language) bool {
 	return ok
 }
 
+var separators = map[byte]bool{
+	' ': true,
+	'.': true,
+	',': true,
+	';': true,
+	'!': true,
+	'?': true,
+	'-': true,
+}
+
 func splitSentence(text string) []string {
-	// Define separators (space, punctuation)
-	separators := map[byte]bool{
-		' ': true,
-		'.': true,
-		',': true,
-		';': true,
-		'!': true,
-		'?': true,
-		'-': true, // Optional for hyphenated words
-		// Add more separators as needed
-	}
-
-	var words []string
+	textLen := len(text)
+	words := make([]string, 0, strings.Count(text, " ")+1)
 	start := 0
-
-	for i := 0; i < len(text); i++ {
-		if isSeparator(text[i], separators) {
-			// Found a separator, append the current word
+	for i := 0; i < textLen; i++ {
+		char := text[i]
+		if separators[char] {
 			if start < i {
 				words = append(words, text[start:i])
 			}
 			start = i + 1
 		}
 	}
-
-	// Append the last word if it exists
-	if start < len(text) {
+	if start < textLen {
 		words = append(words, text[start:])
 	}
-
 	return words
 }
 
-func isSeparator(char byte, separators map[byte]bool) bool {
-	_, ok := separators[char]
-	return ok
-}
-
 func Tokenize(params *TokenizeParams, config *Config) ([]string, error) {
-	params.Text = strings.ToLower(params.Text)
+	params.Text = lib.ToLower(params.Text)
 	splitText := splitSentence(params.Text)
 	tokens := make([]string, 0)
 	uniqueTokens := make(map[string]struct{})
@@ -111,12 +104,11 @@ func Tokenize(params *TokenizeParams, config *Config) ([]string, error) {
 }
 
 func normalizeToken(params *normalizeParams, config *Config) string {
-	token := params.token
-	if _, ok := stopWords[params.language][token]; config.EnableStopWords && ok {
+	if _, ok := stopWords[params.language][params.token]; config.EnableStopWords && ok {
 		return ""
 	}
-	if stem, ok := stems[params.language]; config.EnableStemming && ok {
-		token = stem(token, false)
+	if config.EnableStemming {
+		return english.Stem(params.token, false)
 	}
-	return token
+	return params.token
 }

@@ -20,9 +20,13 @@ func TestMap(t *testing.T) {
 			EnableStemming:  true,
 			EnableStopWords: true,
 		},
+		IndexKeys: search.DocFields(icds[0]),
 	})
 	var startTime = time.Now()
+	before := stats()
 	db.InsertBatch(icds, runtime.NumCPU())
+	after := stats()
+	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	/*for _, icd := range icds {
 		db.Insert(icd)
 	}*/
@@ -51,4 +55,10 @@ func readFileAsMap(file string) (icds []map[string]any) {
 		return
 	}
 	return
+}
+
+func stats() uint64 {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return m.Alloc / (1024 * 1024)
 }

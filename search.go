@@ -492,16 +492,18 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 		cache = nil
 	}()
 	for id, score := range allIdScores {
-		if doc, ok := db.GetDocument(id); ok {
-			if len(params.Extra) > 0 {
-				if db.Check(doc, params.Extra) {
-					cache[id] = score
-					results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
-				}
-			} else {
-				cache[id] = score
-				results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
-			}
+		doc, ok := db.GetDocument(id)
+		if !ok {
+			continue
+		}
+		if len(params.Extra) == 0 {
+			cache[id] = score
+			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
+			continue
+		}
+		if db.Check(doc, params.Extra) {
+			cache[id] = score
+			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
 		}
 	}
 	if cachedKey != 0 {
@@ -544,18 +546,20 @@ func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, err
 	}, db.tokenizerConfig)
 
 	for _, prop := range properties {
-		if index, ok := db.indexes.Get(prop); ok {
-			idScores := index.Find(&FindParams{
-				Tokens:    tokens,
-				BoolMode:  params.BoolMode,
-				Exact:     params.Exact,
-				Tolerance: params.Tolerance,
-				Relevance: params.Relevance,
-				DocsCount: db.DocumentLen(),
-			})
-			for id, score := range idScores {
-				allIdScores[id] += score
-			}
+		index, ok := db.indexes.Get(prop)
+		if !ok {
+			continue
+		}
+		idScores := index.Find(&FindParams{
+			Tokens:    tokens,
+			BoolMode:  params.BoolMode,
+			Exact:     params.Exact,
+			Tolerance: params.Tolerance,
+			Relevance: params.Relevance,
+			DocsCount: db.DocumentLen(),
+		})
+		for id, score := range idScores {
+			allIdScores[id] += score
 		}
 	}
 	return allIdScores, nil

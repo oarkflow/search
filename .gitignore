@@ -6,3 +6,5 @@ bin
 *.out
 *.test
 .history
+/examples/test/cpu.prof
+/examples/test/mem.prof

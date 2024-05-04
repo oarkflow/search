@@ -149,3 +149,6 @@ install-alignment:
 
 fix-size:
 	find . -type f -name '*.go' -print -exec sh -c 'sizeof --fix {}' \;
+
+profile:
+	go test -cpuprofile cpu.prof -memprofile mem.prof && go tool pprof -http localhost:3435 mem.prof

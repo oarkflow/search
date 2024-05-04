@@ -111,9 +111,13 @@ func testMap() {
 		IndexKeys: search.DocFields(icds[0]),
 	})
 	var startTime = time.Now()
-	for _, icd := range icds {
+	before := stats()
+	db.InsertBatch(icds, runtime.NumCPU())
+	after := stats()
+	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
+	/*for _, icd := range icds {
 		db.Insert(icd)
-	}
+	}*/
 	fmt.Println("Total Documents", db.DocumentLen())
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()
@@ -125,6 +129,12 @@ func testMap() {
 	}
 	fmt.Println("Searching took", time.Since(startTime))
 	fmt.Println(len(s.Hits))
+}
+
+func stats() uint64 {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return m.Alloc / (1024 * 1024)
 }
 
 func testStruct() {

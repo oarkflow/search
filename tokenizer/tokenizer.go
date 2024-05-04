@@ -91,8 +91,10 @@ func Tokenize(params *TokenizeParams, config *Config) (map[string]int, error) {
 }
 
 func normalizeToken(params normalizeParams, config *Config) string {
-	if _, ok := stopWords[params.language][params.token]; config.EnableStopWords && ok {
-		return ""
+	if config.EnableStopWords {
+		if _, ok := stopWords[params.language][params.token]; ok {
+			return ""
+		}
 	}
 	if config.EnableStemming {
 		return english.Stem(params.token, false)

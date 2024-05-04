@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"golang.org/x/exp/constraints"
 )
 
 func IsEqual(dataVal, val any) bool {
@@ -13,6 +15,10 @@ func IsEqual(dataVal, val any) bool {
 		switch gtVal := dataVal.(type) {
 		case string:
 			return strings.EqualFold(val, gtVal)
+		case []string:
+			return slices.Contains(gtVal, val)
+		case []any:
+			return slices.Contains(gtVal, any(val))
 		default:
 			gtVal1 := fmt.Sprint(gtVal)
 			return strings.EqualFold(val, gtVal1)
@@ -25,6 +31,8 @@ func IsEqual(dataVal, val any) bool {
 			return val == int(gtVal)
 		case float64:
 			return float64(val) == gtVal
+		case []any:
+			return slices.Contains(gtVal, any(val))
 		case string:
 			v, err := strconv.Atoi(gtVal)
 			if err != nil {
@@ -41,6 +49,8 @@ func IsEqual(dataVal, val any) bool {
 			return val == float64(gtVal)
 		case float64:
 			return val == gtVal
+		case []any:
+			return slices.Contains(gtVal, any(val))
 		case string:
 			v, err := strconv.ParseFloat(gtVal, 32)
 			if err != nil {
@@ -53,6 +63,8 @@ func IsEqual(dataVal, val any) bool {
 		switch gtVal := dataVal.(type) {
 		case bool:
 			return val == gtVal
+		case []any:
+			return slices.Contains(gtVal, any(val))
 		case string:
 			v, err := strconv.ParseBool(gtVal)
 			if err != nil {
@@ -68,27 +80,57 @@ func IsEqual(dataVal, val any) bool {
 	}
 }
 
-// Intersection computes the list of values that are the intersection of all the slices.
+// IntersectionOld computes the list of values that are the intersection of all the slices.
 // Each value in the result should be present in each of the provided slices.
-func Intersection[T comparable](params ...[]T) []T {
-	var result []T
-
-	for i := 0; i < len(params[0]); i++ {
-		item := params[0][i]
-		if slices.Contains(result, item) {
-			continue
-		}
-		var j int
-		for j = 1; j < len(params); j++ {
-			if !slices.Contains(params[j], item) {
+func IntersectionOld[T comparable](p ...[]T) []T {
+	// sort.Slice(p, func(i, j int) bool { return len(p[i]) < len(p[j]) })
+	var rs []T
+	pLen := len(p)
+	if pLen == 0 {
+		return rs
+	}
+	if pLen == 1 {
+		return p[0]
+	}
+	first := p[0]
+	rest := p[1:]
+	rLen := len(rest)
+	for _, f := range first {
+		j := 0
+		for _, rs := range rest {
+			if !slices.Contains(rs, f) {
 				break
 			}
+			j++
 		}
-
-		if j == len(params) {
-			result = append(result, item)
+		if j == rLen {
+			rs = append(rs, f)
 		}
 	}
 
+	return rs
+}
+
+func Intersection[T constraints.Ordered](pS ...[]T) []T {
+	hash := make(map[T]*int) // value, counter
+	result := make([]T, 0)
+	for _, slice := range pS {
+		duplicationHash := make(map[T]struct{}) // duplication checking for individual slice
+		for _, value := range slice {
+			_, isDup := duplicationHash[value]
+			if isDup {
+				continue
+			}
+			if counter := hash[value]; counter != nil { // is found in hash counter map
+				if *counter++; *counter >= len(pS) { // is found in every slice
+					result = append(result, value)
+				}
+			} else { // not found in hash counter map
+				i := 1
+				hash[value] = &i
+			}
+			duplicationHash[value] = struct{}{}
+		}
+	}
 	return result
 }

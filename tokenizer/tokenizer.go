@@ -1,7 +1,6 @@
 package tokenizer
 
 import (
-	"errors"
 	"regexp"
 	"strings"
 	"unicode"
@@ -18,17 +17,11 @@ const (
 	ENGLISH Language = "en"
 )
 
-var Languages = []Language{ENGLISH}
-
 var splitRules = map[Language]*regexp.Regexp{
 	ENGLISH: regexp.MustCompile(`[^A-Za-zàèéìòóù0-9_'-:.]`),
 }
 
 var normalizer = transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
-
-var (
-	LanguageNotSupported = errors.New("language not supported")
-)
 
 type Language string
 
@@ -82,28 +75,22 @@ func splitSentence(text string) []string {
 	return words
 }
 
-func Tokenize(params *TokenizeParams, config *Config) ([]string, error) {
+func Tokenize(params *TokenizeParams, config *Config) (map[string]int, error) {
 	params.Text = lib.ToLower(params.Text)
 	splitText := splitSentence(params.Text)
-	tokens := make([]string, 0)
-	uniqueTokens := make(map[string]struct{})
+	tokens := make(map[string]int, len(splitText)) // Pre-allocate map size
 	for _, token := range splitText {
-		normParams := normalizeParams{
-			token:    token,
-			language: params.Language,
-		}
-		if normToken := normalizeToken(&normParams, config); normToken != "" {
-			if _, ok := uniqueTokens[normToken]; (!ok && !params.AllowDuplicates) || params.AllowDuplicates {
-				uniqueTokens[normToken] = struct{}{}
-				tokens = append(tokens, normToken)
+		if normToken := normalizeToken(normalizeParams{token: token, language: params.Language}, config); normToken != "" {
+			if _, ok := tokens[normToken]; (!ok && !params.AllowDuplicates) || params.AllowDuplicates {
+				tokens[normToken]++
 			}
 		}
 	}
-
+	splitText = splitText[:0]
 	return tokens, nil
 }
 
-func normalizeToken(params *normalizeParams, config *Config) string {
+func normalizeToken(params normalizeParams, config *Config) string {
 	if _, ok := stopWords[params.language][params.token]; config.EnableStopWords && ok {
 		return ""
 	}

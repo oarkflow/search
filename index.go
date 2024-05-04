@@ -8,7 +8,7 @@ import (
 )
 
 type FindParams struct {
-	Tokens    []string
+	Tokens    map[string]int
 	BoolMode  Mode
 	Exact     bool
 	Tolerance int
@@ -18,7 +18,7 @@ type FindParams struct {
 
 type IndexParams struct {
 	Id        int64
-	Tokens    []string
+	Tokens    map[string]int
 	DocsCount int
 }
 
@@ -39,13 +39,8 @@ func NewIndex() *Index {
 
 func (idx *Index) Insert(params *IndexParams) {
 	totalTokens := len(params.Tokens)
-	tokenOccurrences := make(map[string]int, totalTokens) // Pre-allocate map size
 
-	for _, token := range params.Tokens {
-		tokenOccurrences[token]++
-	}
-
-	for token, count := range tokenOccurrences {
+	for token, count := range params.Tokens {
 		tokenFrequency := float64(count) / float64(totalTokens)
 		idx.data.Insert(&radix.InsertParams{
 			Id:            params.Id,
@@ -59,7 +54,7 @@ func (idx *Index) Insert(params *IndexParams) {
 }
 
 func (idx *Index) Delete(params *IndexParams) {
-	for _, token := range params.Tokens {
+	for token := range params.Tokens {
 		idx.data.Delete(&radix.DeleteParams{
 			Id:   params.Id,
 			Word: token,
@@ -78,7 +73,7 @@ func (idx *Index) Find(params *FindParams) map[int64]float64 {
 	idScores := make(map[int64]float64)
 	idTokensCount := make(map[int64]int)
 	commonKeys := make(map[string][]int64)
-	for _, token := range params.Tokens {
+	for token := range params.Tokens {
 		infos := idx.data.Find(&radix.FindParams{
 			Term:      token,
 			Tolerance: params.Tolerance,

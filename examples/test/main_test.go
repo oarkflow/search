@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -21,14 +22,15 @@ func TestMap(t *testing.T) {
 		},
 	})
 	var startTime = time.Now()
-	for _, icd := range icds {
+	db.InsertBatch(icds, runtime.NumCPU())
+	/*for _, icd := range icds {
 		db.Insert(icd)
-	}
+	}*/
 	fmt.Println("Total Documents", db.DocumentLen())
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()
 	s, err := db.Search(&search.Params{
-		Query: "QUANTITATIVE",
+		Query: "presence",
 	})
 	if err != nil {
 		panic(err)

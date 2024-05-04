@@ -286,7 +286,7 @@ func (db *Engine[Schema]) InsertBatch(docs []Schema, batchSize int, lang ...toke
 		return nil
 	}
 	var errs []error
-	pool := gopool.NewGoPool(batchSize, gopool.WithErrorCallback(func(err error) {
+	pool := gopool.NewGoPool(batchSize, gopool.WithTaskQueueSize(1000), gopool.WithErrorCallback(func(err error) {
 		errs = append(errs, err)
 	}))
 	defer pool.Release()
@@ -621,14 +621,6 @@ func (db *Engine[Schema]) deindexDocument(id int64, document map[string]string, 
 	})
 }
 
-func getVal(fields map[string]string, field string, val any) {
-	if str, ok := val.(string); ok {
-		fields[field] = str
-		return
-	}
-	fields[field] = fmt.Sprint(val)
-}
-
 func (db *Engine[Schema]) getFieldsFromMap(obj any) map[string]string {
 	fields := make(map[string]string)
 	m, ok := obj.(map[string]any)
@@ -638,7 +630,11 @@ func (db *Engine[Schema]) getFieldsFromMap(obj any) map[string]string {
 	rules := db.rules
 	for field, val := range m {
 		if rules == nil || rules[field] {
-			getVal(fields, field, val)
+			if str, ok := val.(string); ok {
+				fields[field] = str
+			} else {
+				fields[field] = fmt.Sprint(val)
+			}
 		}
 	}
 	return fields

@@ -280,13 +280,37 @@ func (db *Engine[Schema]) Insert(doc Schema, lang ...tokenizer.Language) (Record
 	return Record[Schema]{Id: id, Data: doc}, nil
 }
 
-func (db *Engine[Schema]) InsertBatch(docs []Schema, batchSize int, lang ...tokenizer.Language) []error {
+func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker int, lang ...tokenizer.Language) []error {
 	docLen := len(docs)
 	if docLen == 0 {
 		return nil
 	}
 	var errs []error
-	pool := gopool.NewGoPool(batchSize, gopool.WithTaskQueueSize(1000), gopool.WithErrorCallback(func(err error) {
+	pool := gopool.NewGoPool(noOfWorker, gopool.WithTaskQueueSize(10), gopool.WithErrorCallback(func(err error) {
+		errs = append(errs, err)
+	}))
+	defer pool.Release()
+	language := tokenizer.ENGLISH
+	if len(lang) > 0 {
+		language = lang[0]
+	}
+	for _, doc := range docs {
+		pool.AddTask(func() (interface{}, error) {
+			db.Insert(doc, language)
+			return nil, nil
+		})
+	}
+	pool.Wait()
+	return errs
+}
+
+func (db *Engine[Schema]) InsertWithBatch(docs []Schema, noOfWorker int, lang ...tokenizer.Language) []error {
+	docLen := len(docs)
+	if docLen == 0 {
+		return nil
+	}
+	var errs []error
+	pool := gopool.NewGoPool(noOfWorker, gopool.WithTaskQueueSize(10), gopool.WithErrorCallback(func(err error) {
 		errs = append(errs, err)
 	}))
 	defer pool.Release()

@@ -13,7 +13,8 @@ import (
 )
 
 func TestMap(t *testing.T) {
-	icds := readFileAsMap("icd10_codes.json")
+	icds := readFileAsMap("cpt_codes.json")
+	runtime.GC()
 	db, _ := search.New[map[string]any](&search.Config{
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
@@ -24,7 +25,7 @@ func TestMap(t *testing.T) {
 	})
 	var startTime = time.Now()
 	before := stats()
-	db.InsertBatch(icds, runtime.NumCPU())
+	db.InsertWithPool(icds, runtime.NumCPU())
 	after := stats()
 	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	/*for _, icd := range icds {

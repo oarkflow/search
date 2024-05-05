@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -101,7 +103,7 @@ func memoryUsage() float64 {
 }
 
 func testMap() {
-	icds := readFileAsMap("icd10_codes.json")
+	icds := readFileAsMap("cpt_codes.json")
 	db, _ := search.New[map[string]any](&search.Config{
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
@@ -112,7 +114,15 @@ func testMap() {
 	})
 	var startTime = time.Now()
 	before := stats()
-	db.InsertBatch(icds, runtime.NumCPU())
+	chunks, err := readDataInChunks(icds, 1000)
+	if err != nil {
+		panic(err)
+	}
+	for _, chunk := range chunks {
+		for _, icd := range chunk {
+			db.Insert(icd)
+		}
+	}
 	after := stats()
 	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	/*for _, icd := range icds {
@@ -131,6 +141,69 @@ func testMap() {
 	fmt.Println(len(s.Hits))
 }
 
+func readDataInChunks[T any](data []T, chunkSize int) ([][]T, error) {
+	var chunks [][]T
+	buffer := bytes.NewBuffer(nil)
+	writer := bufio.NewWriter(buffer)
+
+	// Encode each data element into the buffer
+	for _, element := range data {
+		dataBytes, err := json.Marshal(element) // Assuming data is JSON encoded
+		if err != nil {
+			return nil, err
+		}
+		writer.Write(dataBytes)
+		writer.WriteByte('\n') // Add newline separator between elements
+
+		// Check if buffer reaches chunk size
+		if buffer.Len() >= chunkSize {
+			err := writer.Flush()
+			if err != nil {
+				return nil, err
+			}
+
+			// Read the chunk from the buffer and add to results
+			chunk := make([]T, 0)
+			scanner := bufio.NewScanner(buffer)
+			for scanner.Scan() {
+				var decodedData T
+				err := json.Unmarshal(scanner.Bytes(), &decodedData)
+				if err != nil {
+					return nil, err
+				}
+				chunk = append(chunk, decodedData)
+			}
+			chunks = append(chunks, chunk)
+
+			// Reset buffer for next chunk
+			buffer.Reset()
+			writer = bufio.NewWriter(buffer)
+		}
+	}
+
+	// Flush any remaining data in the buffer
+	if buffer.Len() > 0 {
+		err := writer.Flush()
+		if err != nil {
+			return nil, err
+		}
+
+		chunk := make([]T, 0)
+		scanner := bufio.NewScanner(buffer)
+		for scanner.Scan() {
+			var decodedData T
+			err := json.Unmarshal(scanner.Bytes(), &decodedData)
+			if err != nil {
+				return nil, err
+			}
+			chunk = append(chunk, decodedData)
+		}
+		chunks = append(chunks, chunk)
+	}
+
+	return chunks, nil
+}
+
 func stats() uint64 {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -145,7 +218,7 @@ func testStruct() {
 			EnableStemming:  true,
 		},
 	})
-	errs := ftsSearch.InsertBatch(data, 1000)
+	errs := ftsSearch.InsertWithPool(data, 1000)
 	if len(errs) > 0 {
 		for _, err := range errs {
 			panic(err)
@@ -176,7 +249,7 @@ func testString() {
 			EnableStemming:  true,
 		},
 	})
-	errs := ftsSearch.InsertBatch(data, 1000)
+	errs := ftsSearch.InsertWithPool(data, 1000)
 	if len(errs) > 0 {
 		for _, err := range errs {
 			panic(err)

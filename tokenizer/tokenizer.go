@@ -10,7 +10,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/oarkflow/search/lib"
-	"github.com/oarkflow/search/snowball/english"
+	"github.com/oarkflow/search/snowball"
 )
 
 const (
@@ -97,7 +97,7 @@ func normalizeToken(params normalizeParams, config *Config) string {
 		}
 	}
 	if config.EnableStemming {
-		return english.Stem(params.token, false)
+		return lib.FromByte(snowball.Stem(lib.ToByte(params.token)))
 	}
 	return params.token
 }

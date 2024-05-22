@@ -13,7 +13,8 @@ require (
 	github.com/oarkflow/squealx v0.0.8
 	github.com/oarkflow/xid v1.2.5
 	github.com/vmihailenco/msgpack/v5 v5.4.1
-	golang.org/x/text v0.14.0
+	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
+	golang.org/x/text v0.15.0
 )
 
 require (
@@ -39,6 +40,7 @@ require (
 	github.com/oarkflow/log v1.0.74 // indirect
 	github.com/oarkflow/pkg v0.1.38 // indirect
 	github.com/oarkflow/protocol v0.0.15 // indirect
+	github.com/stretchr/testify v1.9.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/toorop/go-dkim v0.0.0-20240103092955-90b7d1423f92 // indirect
@@ -46,7 +48,6 @@ require (
 	github.com/xhit/go-simple-mail/v2 v2.16.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/crypto v0.22.0 // indirect
-	golang.org/x/exp v0.0.0-20240409090435-93d18d7e34b8 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.19.0 // indirect
 	golang.org/x/time v0.5.0 // indirect

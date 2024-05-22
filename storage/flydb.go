@@ -10,18 +10,20 @@ import (
 )
 
 type FlyDB[K comparable, V any] struct {
-	client   *flydb.DB[[]byte, []byte]
-	compress bool
+	client     *flydb.DB[[]byte, []byte]
+	compress   bool
+	sampleSize int
 }
 
-func NewFlyDB[K comparable, V any](basePath string, compressed bool) (Store[K, V], error) {
+func NewFlyDB[K comparable, V any](basePath string, compressed bool, sampleSize int) (Store[K, V], error) {
 	client, err := flydb.Open[[]byte, []byte](basePath, nil)
 	if err != nil {
 		return nil, err
 	}
 	db := &FlyDB[K, V]{
-		client:   client,
-		compress: compressed,
+		client:     client,
+		compress:   compressed,
+		sampleSize: sampleSize,
 	}
 	return db, nil
 }
@@ -49,10 +51,14 @@ func (s *FlyDB[K, V]) Del(key K) error {
 }
 
 // Sample removes a key-value pair from disk
-func (s *FlyDB[K, V]) Sample() (map[string]V, error) {
+func (s *FlyDB[K, V]) Sample(size ...int) (map[string]V, error) {
+	sz := s.sampleSize
+	if len(size) > 0 && size[0] != 0 {
+		sz = size[0]
+	}
 	value := make(map[string]V)
 	it := s.client.Items()
-	for i := 0; i < 20; i++ {
+	for i := 0; i < sz; i++ {
 		key, val, err := it.Next()
 		if err == flydb.ErrIterationDone {
 			break

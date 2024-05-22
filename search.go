@@ -122,6 +122,7 @@ type Config struct {
 	Path            string          `json:"path"`
 	Compress        bool            `json:"compress"`
 	ResetPath       bool            `json:"reset_path"`
+	SampleSize      int             `json:"sample_size"`
 }
 
 type Engine[Schema SchemaProps] struct {
@@ -140,11 +141,16 @@ type Engine[Schema SchemaProps] struct {
 }
 
 func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], error) {
+	if c.SampleSize == 0 {
+		c.SampleSize = 20
+	}
 	switch c.Storage {
 	case "json", "jsondb":
-		return storage.NewJsonDB[int64, Schema](c.Path, c.Compress)
+		return storage.NewJsonDB[int64, Schema](c.Path, c.Compress, c.SampleSize)
+	case "memory", "memdb":
+		return storage.NewMemDB[int64, Schema](c.SampleSize)
 	default:
-		return storage.NewFlyDB[int64, Schema](c.Path, c.Compress)
+		return storage.NewFlyDB[int64, Schema](c.Path, c.Compress, c.SampleSize)
 	}
 }
 
@@ -485,6 +491,19 @@ func (db *Engine[Schema]) SearchOld(params *Params) (Result[Schema], error) {
 	return db.prepareResult(db.getDocuments(idScores), params)
 }
 
+func (db *Engine[Schema]) Sample(size ...int) (Result[Schema], error) {
+	results := make(Hits[Schema], 0)
+	sampleDocs, err := db.documents.Sample(size...)
+	if err != nil {
+		return Result[Schema]{}, err
+	}
+	for k, doc := range sampleDocs {
+		parseInt, _ := strconv.ParseInt(k, 10, 64)
+		results = append(results, Hit[Schema]{Id: parseInt, Data: doc, Score: 0})
+	}
+	return db.prepareResult(results, &Params{Paginate: false})
+}
+
 // Search - uses params to search
 func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	if db.cache == nil {
@@ -510,15 +529,7 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	}
 	results := make(Hits[Schema], 0)
 	if len(allIdScores) == 0 && params.Query == "" {
-		sampleDocs, err := db.documents.Sample()
-		if err != nil {
-			return Result[Schema]{}, err
-		}
-		for k, doc := range sampleDocs {
-			parseInt, _ := strconv.ParseInt(k, 10, 64)
-			results = append(results, Hit[Schema]{Id: parseInt, Data: doc, Score: 0})
-		}
-		return db.prepareResult(results, params)
+		return db.Sample()
 	}
 	cache := make(map[int64]float64)
 	defer func() {

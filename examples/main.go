@@ -24,6 +24,7 @@ func main() {
 
 func httpTest() {
 	db, _ := search.New[map[string]any](&search.Config{
+		Storage:         "memory",
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
 			EnableStemming:  true,
@@ -103,9 +104,9 @@ func memoryUsage() float64 {
 }
 
 func testMap() {
-	icds := readFileAsMap("cpt_codes.json")
+	icds := readFileAsMap("icd10_codes.json")
 	db, _ := search.New[map[string]any](&search.Config{
-		Storage:         "rose",
+		Storage:         "memory",
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
 			EnableStemming:  true,

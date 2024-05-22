@@ -24,29 +24,29 @@ func Vowel(body []byte, offset int) bool {
 }
 
 const (
-	vowel_state = iota
-	consonant_state
+	vowelState = iota
+	consonantState
 )
 
 func Measure(body []byte) int {
-	meansure := 0
+	measure := 0
 	if len(body) > 0 {
 		var state int
 		if Vowel(body, 0) {
-			state = vowel_state
+			state = vowelState
 		} else {
-			state = consonant_state
+			state = consonantState
 		}
 		for i := 0; i < len(body); i++ {
-			if Vowel(body, i) && state == consonant_state {
-				state = vowel_state
-			} else if Consonant(body, i) && state == vowel_state {
-				state = consonant_state
-				meansure++
+			if Vowel(body, i) && state == consonantState {
+				state = vowelState
+			} else if Consonant(body, i) && state == vowelState {
+				state = consonantState
+				measure++
 			}
 		}
 	}
-	return meansure
+	return measure
 }
 
 func hasVowel(body []byte) bool {
@@ -58,7 +58,7 @@ func hasVowel(body []byte) bool {
 	return false
 }
 
-func one_a(body []byte) []byte {
+func oneA(body []byte) []byte {
 	if hasSuffix(body, []byte("sses")) || hasSuffix(body, []byte("ies")) {
 		return body[:len(body)-2]
 	} else if hasSuffix(body, []byte("ss")) {
@@ -69,14 +69,14 @@ func one_a(body []byte) []byte {
 	return body
 }
 
-func star_o(body []byte) bool {
+func starO(body []byte) bool {
 	size := len(body) - 1
 	if size >= 2 && Consonant(body, size-2) && Vowel(body, size-1) && Consonant(body, size) {
 		return body[size] != 'w' && body[size] != 'x' && body[size] != 'y'
 	}
 	return false
 }
-func one_b_a(body []byte) []byte {
+func oneBA(body []byte) []byte {
 
 	size := len(body)
 	if hasSuffix(body, []byte("at")) {
@@ -89,30 +89,30 @@ func one_b_a(body []byte) []byte {
 		if body[size-1] != 'l' && body[size-1] != 's' && body[size-1] != 'z' {
 			return body[:size-1]
 		}
-	} else if star_o(body) && Measure(body) == 1 {
+	} else if starO(body) && Measure(body) == 1 {
 		return append(body, 'e')
 	}
 	return body
 }
 
-func one_b(body []byte) []byte {
+func oneB(body []byte) []byte {
 	if hasSuffix(body, []byte("eed")) {
 		if Measure(body[:len(body)-3]) > 0 {
 			return body[:len(body)-1]
 		}
 	} else if hasSuffix(body, []byte("ed")) {
 		if hasVowel(body[:len(body)-2]) {
-			return one_b_a(body[:len(body)-2])
+			return oneBA(body[:len(body)-2])
 		}
 	} else if hasSuffix(body, []byte("ing")) {
 		if hasVowel(body[:len(body)-3]) {
-			return one_b_a(body[:len(body)-3])
+			return oneBA(body[:len(body)-3])
 		}
 	}
 	return body
 }
 
-func one_c(body []byte) []byte {
+func oneC(body []byte) []byte {
 	if hasSuffix(body, []byte("y")) && hasVowel(body[:len(body)-1]) {
 		body[len(body)-1] = 'i'
 		return body
@@ -327,10 +327,10 @@ func four(body []byte) []byte {
 	return body
 }
 
-func five_a(body []byte) []byte {
+func fiveA(body []byte) []byte {
 	if hasSuffix(body, []byte("e")) && Measure(body[:len(body)-1]) > 1 {
 		return body[:len(body)-1]
-	} else if hasSuffix(body, []byte("e")) && Measure(body[:len(body)-1]) == 1 && !star_o(body[:len(body)-1]) {
+	} else if hasSuffix(body, []byte("e")) && Measure(body[:len(body)-1]) == 1 && !starO(body[:len(body)-1]) {
 		return body[:len(body)-1]
 	}
 	return body
@@ -347,7 +347,7 @@ func fiveB(body []byte) []byte {
 func Stem(body []byte) []byte {
 	word := bytes.TrimSpace(lib.ToLowerBytes(body))
 	if len(word) > 2 {
-		return fiveB(five_a(four(three(two(one_c(one_b(one_a(word))))))))
+		return fiveB(fiveA(four(three(two(oneC(oneB(oneA(word))))))))
 	}
 	return word
 }

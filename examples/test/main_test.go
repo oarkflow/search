@@ -13,9 +13,9 @@ import (
 )
 
 func TestMap(t *testing.T) {
-	icds := readFileAsMap("cpt_codes.json")
-	runtime.GC()
+	icds := readFileAsMap("icd10_codes.json")
 	db, _ := search.New[map[string]any](&search.Config{
+		Storage:         "memory",
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
 			EnableStemming:  true,

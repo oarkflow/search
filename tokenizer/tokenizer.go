@@ -91,13 +91,18 @@ func Tokenize(params *TokenizeParams, config *Config) (map[string]int, error) {
 }
 
 func normalizeToken(params normalizeParams, config *Config) string {
+	token := params.token
 	if config.EnableStopWords {
-		if _, ok := stopWords[params.language][params.token]; ok {
+		if _, ok := stopWords[params.language][token]; ok {
 			return ""
 		}
 	}
 	if config.EnableStemming {
-		return lib.FromByte(snowball.Stem(lib.ToByte(params.token)))
+		// return english.Stem(params.token, false)
+		token = lib.FromByte(snowball.Stem(lib.ToByte(token)))
 	}
-	return params.token
+	/*if normToken, _, err := transform.String(normalizer, token); err == nil {
+		return normToken
+	}*/
+	return token
 }

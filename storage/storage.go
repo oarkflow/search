@@ -6,6 +6,6 @@ type Store[K comparable, V any] interface {
 	Get(key K) (V, bool)
 	Del(key K) error
 	Len() uint32
-	Sample() (map[string]V, error)
+	Sample(size ...int) (map[string]V, error)
 	Close() error
 }

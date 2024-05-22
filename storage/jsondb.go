@@ -12,21 +12,22 @@ import (
 
 // JsonDB implements KVStore using files on disk
 type JsonDB[K comparable, V any] struct {
-	basePath string
-	compress bool
-	docLen   int
+	basePath   string
+	compress   bool
+	docLen     int
+	sampleSize int
 }
 
 // NewJsonDB creates a new JsonDB instance
-func NewJsonDB[K comparable, V any](basePath string, compress bool) (Store[K, V], error) {
+func NewJsonDB[K comparable, V any](basePath string, compress bool, sampleSize int) (Store[K, V], error) {
 	if err := os.MkdirAll(basePath, 0755); err != nil {
 		return nil, err
 	}
-	return &JsonDB[K, V]{basePath: basePath, compress: compress}, nil
+	return &JsonDB[K, V]{basePath: basePath, compress: compress, sampleSize: sampleSize}, nil
 }
 
 // Sample removes a key-value pair from disk
-func (s *JsonDB[K, V]) Sample() (map[string]V, error) {
+func (s *JsonDB[K, V]) Sample(size ...int) (map[string]V, error) {
 	return nil, nil
 }
 

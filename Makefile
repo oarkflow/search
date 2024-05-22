@@ -144,11 +144,11 @@ migrate-rollback:
 	go run . artisan migrate:rollback
 
 install-alignment:
-	go install golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@latest
-	cp $(echo $GOPATH)/bin/fieldalignment $(echo $GOPATH)/bin/sizeof
+	go install github.com/dkorunic/betteralign/cmd/betteralign@latest
+	cp $(echo $GOPATH)/bin/betteralign $(echo $GOPATH)/bin/sizeof
 
 fix-size:
-	find . -type f -name '*.go' -print -exec sh -c 'sizeof --fix {}' \;
+	betteralign -apply ./...
 
 profile:
 	go test -cpuprofile cpu.prof -memprofile mem.prof && go tool pprof -http localhost:3435 mem.prof

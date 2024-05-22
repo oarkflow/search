@@ -6,7 +6,7 @@ require (
 	github.com/devchat-ai/gopool v0.6.2
 	github.com/gookit/color v1.5.4
 	github.com/klauspost/compress v1.17.8
-	github.com/oarkflow/flydb v0.0.0-20240406182942-33e06faab72f
+	github.com/oarkflow/flydb v0.0.1
 	github.com/oarkflow/frame v0.0.67
 	github.com/oarkflow/maps v0.0.0-20240406152114-fc5a94538f01
 	github.com/oarkflow/metadata v0.0.49

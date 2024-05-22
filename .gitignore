@@ -1,5 +1,6 @@
 .idea
-storage
+examples/storage
+examples/test/storage
 *.json
 tmp
 bin

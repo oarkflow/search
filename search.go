@@ -111,6 +111,7 @@ func (r Hits[Schema]) Less(i, j int) bool { return r[i].Score > r[j].Score }
 
 type Config struct {
 	Key             string             `json:"key"`
+	Storage         string             `json:"storage"`
 	DefaultLanguage tokenizer.Language `json:"default_language"`
 	TokenizerConfig *tokenizer.Config
 	IndexKeys       []string        `json:"index_keys"`
@@ -138,6 +139,15 @@ type Engine[Schema SchemaProps] struct {
 	cfg             *Config
 }
 
+func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], error) {
+	switch c.Storage {
+	case "json", "jsondb":
+		return storage.NewJsonDB[int64, Schema](c.Path, c.Compress)
+	default:
+		return storage.NewFlyDB[int64, Schema](c.Path, c.Compress)
+	}
+}
+
 func New[Schema SchemaProps](c *Config) (*Engine[Schema], error) {
 	if c.TokenizerConfig == nil {
 		c.TokenizerConfig = &tokenizer.Config{
@@ -162,7 +172,7 @@ func New[Schema SchemaProps](c *Config) (*Engine[Schema], error) {
 			return nil, err
 		}
 	}
-	store, err := storage.NewFlyDB[int64, Schema](c.Path, c.Compress)
+	store, err := getStore[Schema](c)
 	if err != nil {
 		return nil, err
 	}

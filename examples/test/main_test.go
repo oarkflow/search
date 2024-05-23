@@ -25,7 +25,7 @@ func TestMap(t *testing.T) {
 	})
 	var startTime = time.Now()
 	before := stats()
-	db.InsertWithPool(icds, runtime.NumCPU())
+	db.InsertWithPool(icds, 1)
 	after := stats()
 	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	/*for _, icd := range icds {

@@ -312,8 +312,7 @@ func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker int, lang ...
 	}
 	for _, doc := range docs {
 		pool.AddTask(func() (interface{}, error) {
-			db.Insert(doc, language)
-			return nil, nil
+			return db.Insert(doc, language)
 		})
 	}
 	pool.Wait()

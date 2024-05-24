@@ -9,3 +9,4 @@ bin
 .history
 /examples/test/cpu.prof
 /examples/test/mem.prof
+storage/fts

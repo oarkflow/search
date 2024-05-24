@@ -302,7 +302,7 @@ func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker int, lang ...
 		return nil
 	}
 	var errs []error
-	pool := gopool.NewGoPool(noOfWorker, gopool.WithTaskQueueSize(10), gopool.WithErrorCallback(func(err error) {
+	pool := gopool.NewGoPool(noOfWorker, gopool.WithTaskQueueSize(1000), gopool.WithErrorCallback(func(err error) {
 		errs = append(errs, err)
 	}))
 	defer pool.Release()
@@ -419,77 +419,6 @@ func (db *Engine[Schema]) Check(data Schema, filter map[string]any) bool {
 	}
 }
 
-// Deprecated: use Search function instead. It's optimized version. This function will be removed in future version
-func (db *Engine[Schema]) SearchOld(params *Params) (Result[Schema], error) {
-	if db.cache == nil {
-		db.cache = maps.New[uint64, map[int64]float64]()
-	}
-	cachedKey := params.ToInt64()
-	if cachedKey != 0 {
-		if score, ok := db.cache.Get(cachedKey); ok {
-			return db.prepareResult(db.getDocuments(score), params)
-		}
-	}
-	if params.Query == "" && len(params.Extra) > 0 {
-		for key, val := range params.Extra {
-			params.Query = fmt.Sprintf("%v", val)
-			params.Properties = append(params.Properties, key)
-			delete(params.Extra, key)
-			break
-		}
-	}
-	allIdScores, err := db.findWithParams(params)
-	if err != nil {
-		return Result[Schema]{}, err
-	}
-	if len(params.Extra) == 0 {
-		if cachedKey != 0 {
-			db.cache.Set(cachedKey, allIdScores)
-		}
-		return db.prepareResult(db.getDocuments(allIdScores), params)
-	}
-	idScores := make(map[int64]float64)
-	commonKeys := make(map[string][]int64)
-	for key, val := range params.Extra {
-		param := &Params{
-			Query:      fmt.Sprintf("%v", val),
-			Properties: []string{key},
-			BoolMode:   params.BoolMode,
-			Exact:      true,
-			Tolerance:  params.Tolerance,
-			Relevance:  params.Relevance,
-			Language:   params.Language,
-		}
-		scores, err := db.findWithParams(param)
-		if err != nil {
-			return Result[Schema]{}, err
-		}
-		for id := range scores {
-			if v, k := allIdScores[id]; k {
-				idScores[id] = v
-				commonKeys[key] = append(commonKeys[key], id)
-			}
-		}
-		var keys [][]int64
-		for _, k := range commonKeys {
-			keys = append(keys, k)
-		}
-		if len(keys) > 0 {
-			d := lib.Intersection(keys...)
-			for id := range idScores {
-				if !slices.Contains(d, id) {
-					delete(idScores, id)
-				}
-			}
-		}
-	}
-	commonKeys = nil
-	if cachedKey != 0 {
-		db.cache.Set(cachedKey, idScores)
-	}
-	return db.prepareResult(db.getDocuments(idScores), params)
-}
-
 func (db *Engine[Schema]) Sample(size ...int) (Result[Schema], error) {
 	results := make(Hits[Schema], 0)
 	sampleDocs, err := db.documents.Sample(size...)
@@ -521,6 +450,9 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 			delete(params.Extra, key)
 			break
 		}
+	}
+	if params.Query == "" && len(params.Extra) == 0 {
+		return db.Sample(params.Limit)
 	}
 	allIdScores, err := db.findWithParams(params)
 	if err != nil {

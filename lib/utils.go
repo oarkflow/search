@@ -2,6 +2,7 @@ package lib
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -10,75 +11,124 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
+func defaultCheck(dataVal, val any) bool {
+	return fmt.Sprintf("%v", dataVal) == fmt.Sprintf("%v", val)
+}
+
 func IsEqual(dataVal, val any) bool {
-	switch val := val.(type) {
-	case string:
-		switch gtVal := dataVal.(type) {
-		case string:
-			return strings.EqualFold(val, gtVal)
-		case []string:
-			return slices.Contains(gtVal, val)
-		case []any:
-			return slices.Contains(gtVal, any(val))
-		default:
-			gtVal1 := fmt.Sprint(gtVal)
-			return strings.EqualFold(val, gtVal1)
-		}
-	case int:
-		switch gtVal := dataVal.(type) {
-		case int:
-			return val == gtVal
-		case uint:
-			return val == int(gtVal)
-		case float64:
-			return float64(val) == gtVal
-		case []any:
-			return slices.Contains(gtVal, any(val))
-		case string:
-			v, err := strconv.Atoi(gtVal)
-			if err != nil {
-				return false
-			}
-			return val == v
-		}
-		return false
-	case float64:
-		switch gtVal := dataVal.(type) {
-		case int:
-			return val == float64(gtVal)
-		case uint:
-			return val == float64(gtVal)
-		case float64:
-			return val == gtVal
-		case []any:
-			return slices.Contains(gtVal, any(val))
-		case string:
-			v, err := strconv.ParseFloat(gtVal, 32)
-			if err != nil {
-				return false
-			}
-			return val == v
-		}
-		return false
-	case bool:
-		switch gtVal := dataVal.(type) {
-		case bool:
-			return val == gtVal
-		case []any:
-			return slices.Contains(gtVal, any(val))
-		case string:
-			v, err := strconv.ParseBool(gtVal)
-			if err != nil {
-				return false
-			}
-			return val == v
-		}
-		return false
-	default:
-		dataVal1 := fmt.Sprint(dataVal)
-		val1 := fmt.Sprint(val)
-		return strings.EqualFold(dataVal1, val1)
+	if reflect.TypeOf(dataVal) == reflect.TypeOf(val) {
+		return reflect.DeepEqual(dataVal, val)
 	}
+
+	switch v := val.(type) {
+	case string:
+		return compareString(dataVal, v)
+	case int:
+		return compareInt(dataVal, v)
+	case int64:
+		return compareInt64(dataVal, v)
+	case float64:
+		return compareFloat64(dataVal, v)
+	case bool:
+		return compareBool(dataVal, v)
+	default:
+		return defaultCheck(dataVal, val)
+	}
+}
+
+func compareString(dataVal any, val string) bool {
+	switch dataVal := dataVal.(type) {
+	case string:
+		return strings.EqualFold(dataVal, val)
+	case []string:
+		return slices.Contains(dataVal, val)
+	case []any:
+		return slices.Contains(dataVal, any(val))
+	default:
+		return defaultCheck(dataVal, val)
+	}
+}
+
+func compareInt(dataVal any, val int) bool {
+	switch dataVal := dataVal.(type) {
+	case int:
+		return val == dataVal
+	case int64:
+		return int64(val) == dataVal
+	case uint:
+		return val == int(dataVal)
+	case float64:
+		return float64(val) == dataVal
+	case []any:
+		return slices.Contains(dataVal, any(val))
+	case string:
+		if v, err := strconv.Atoi(dataVal); err == nil {
+			return val == v
+		}
+	default:
+		return defaultCheck(dataVal, val)
+	}
+	return false
+}
+
+func compareInt64(dataVal any, val int64) bool {
+	switch dataVal := dataVal.(type) {
+	case int:
+		return val == int64(dataVal)
+	case int64:
+		return val == dataVal
+	case uint:
+		return val == int64(dataVal)
+	case float64:
+		return float64(val) == dataVal
+	case []any:
+		return slices.Contains(dataVal, any(val))
+	case string:
+		if v, err := strconv.ParseInt(dataVal, 10, 64); err == nil {
+			return val == v
+		}
+	default:
+		return defaultCheck(dataVal, val)
+	}
+	return false
+}
+
+func compareFloat64(dataVal any, val float64) bool {
+	switch dataVal := dataVal.(type) {
+	case int:
+		return val == float64(dataVal)
+	case int64:
+		return val == float64(dataVal)
+	case uint:
+		return val == float64(dataVal)
+	case float64:
+		return val == dataVal
+	case []any:
+		return slices.Contains(dataVal, any(val))
+	case string:
+		if v, err := strconv.ParseFloat(dataVal, 64); err == nil {
+			return val == v
+		}
+	default:
+		return defaultCheck(dataVal, val)
+	}
+	return false
+}
+
+func compareBool(dataVal any, val bool) bool {
+	switch dataVal := dataVal.(type) {
+	case bool:
+		return val == dataVal
+	case []any:
+		return slices.Contains(dataVal, any(val))
+	case string:
+		if v, err := strconv.ParseBool(dataVal); err == nil {
+			return val == v
+		}
+	default:
+		return defaultCheck(dataVal, val)
+	}
+	return false
 }
 
 // IntersectionOld computes the list of values that are the intersection of all the slices.

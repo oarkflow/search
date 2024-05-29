@@ -106,7 +106,6 @@ func memoryUsage() float64 {
 func testMap() {
 	icds := readFileAsMap("icd10_codes.json")
 	db, _ := search.New[map[string]any](&search.Config{
-		Storage:         "memory",
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
 			EnableStemming:  true,

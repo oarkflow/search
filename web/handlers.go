@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -171,7 +172,6 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		params.Paginate = true
 	}
 	var records []map[string]any
-
 	result, err := engine.Search(params)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
@@ -237,9 +237,15 @@ func (f *FulltextController) IndexFromDatabase(_ context.Context, ctx *frame.Con
 	start := time.Now()
 	go func(db metadata.DataSource, dbConfig Database, start time.Time) {
 		if dbConfig.Query != "" && strings.Contains(dbConfig.Query, "LIMIT") {
-			IndexFromDB(db, dbConfig, start)
+			err := IndexFromDB(db, dbConfig, start)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
 		} else {
-			IndexFromDBWithPaginate(db, dbConfig, start)
+			err := IndexFromDBWithPaginate(db, dbConfig, start)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
 		}
 	}(db, dbConfig, start)
 	Success(ctx, consts.StatusOK, utils.H{

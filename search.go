@@ -12,7 +12,8 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/devchat-ai/gopool"
+	"github.com/oarkflow/gopool"
+	"github.com/oarkflow/gopool/spinlock"
 	"github.com/oarkflow/xid"
 
 	"github.com/oarkflow/maps"
@@ -296,15 +297,19 @@ func (db *Engine[Schema]) Insert(doc Schema, lang ...tokenizer.Language) (Record
 	return Record[Schema]{Id: id, Data: doc}, nil
 }
 
-func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker int, lang ...tokenizer.Language) []error {
+func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker, batchSize int, lang ...tokenizer.Language) []error {
 	docLen := len(docs)
 	if docLen == 0 {
 		return nil
 	}
 	var errs []error
-	pool := gopool.NewGoPool(noOfWorker, gopool.WithTaskQueueSize(1000), gopool.WithErrorCallback(func(err error) {
-		errs = append(errs, err)
-	}))
+	pool := gopool.NewGoPool(noOfWorker,
+		gopool.WithTaskQueueSize(batchSize),
+		gopool.WithLock(new(spinlock.SpinLock)),
+		gopool.WithErrorCallback(func(err error) {
+			errs = append(errs, err)
+		}),
+	)
 	defer pool.Release()
 	language := tokenizer.ENGLISH
 	if len(lang) > 0 {
@@ -313,30 +318,6 @@ func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker int, lang ...
 	for _, doc := range docs {
 		pool.AddTask(func() (interface{}, error) {
 			return db.Insert(doc, language)
-		})
-	}
-	pool.Wait()
-	return errs
-}
-
-func (db *Engine[Schema]) InsertWithBatch(docs []Schema, noOfWorker int, lang ...tokenizer.Language) []error {
-	docLen := len(docs)
-	if docLen == 0 {
-		return nil
-	}
-	var errs []error
-	pool := gopool.NewGoPool(noOfWorker, gopool.WithTaskQueueSize(10), gopool.WithErrorCallback(func(err error) {
-		errs = append(errs, err)
-	}))
-	defer pool.Release()
-	language := tokenizer.ENGLISH
-	if len(lang) > 0 {
-		language = lang[0]
-	}
-	for _, doc := range docs {
-		pool.AddTask(func() (interface{}, error) {
-			db.Insert(doc, language)
-			return nil, nil
 		})
 	}
 	pool.Wait()
@@ -515,11 +496,11 @@ func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, err
 	if language == "" {
 		language = tokenizer.ENGLISH
 	}
-	tokens, _ := tokenizer.Tokenize(&tokenizer.TokenizeParams{
+	tokens, _ := tokenizer.Tokenize(tokenizer.TokenizeParams{
 		Text:            params.Query,
 		Language:        language,
 		AllowDuplicates: false,
-	}, db.tokenizerConfig)
+	}, *db.tokenizerConfig)
 
 	for _, prop := range properties {
 		index, ok := db.indexes.Get(prop)
@@ -538,6 +519,7 @@ func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, err
 			allIdScores[id] += score
 		}
 	}
+	clear(tokens)
 	return allIdScores, nil
 }
 
@@ -567,17 +549,18 @@ func (db *Engine[Schema]) indexDocument(id int64, document map[string]string, la
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
-		tokens, _ := tokenizer.Tokenize(&tokenizer.TokenizeParams{
+		tokens, _ := tokenizer.Tokenize(tokenizer.TokenizeParams{
 			Text:            document[propName],
 			Language:        language,
 			AllowDuplicates: true,
-		}, db.tokenizerConfig)
+		}, *db.tokenizerConfig)
 
 		index.Insert(&IndexParams{
 			Id:        id,
 			Tokens:    tokens,
 			DocsCount: db.DocumentLen(),
 		})
+		clear(tokens)
 		return true
 	})
 }
@@ -586,17 +569,18 @@ func (db *Engine[Schema]) deindexDocument(id int64, document map[string]string, 
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
-		tokens, _ := tokenizer.Tokenize(&tokenizer.TokenizeParams{
+		tokens, _ := tokenizer.Tokenize(tokenizer.TokenizeParams{
 			Text:            document[propName],
 			Language:        language,
 			AllowDuplicates: false,
-		}, db.tokenizerConfig)
+		}, *db.tokenizerConfig)
 
 		index.Delete(&IndexParams{
 			Id:        id,
 			Tokens:    tokens,
 			DocsCount: db.DocumentLen(),
 		})
+		clear(tokens)
 		return true
 	})
 }

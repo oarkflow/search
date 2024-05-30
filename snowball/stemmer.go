@@ -59,11 +59,11 @@ func hasVowel(body []byte) bool {
 }
 
 func oneA(body []byte) []byte {
-	if hasSuffix(body, []byte("sses")) || hasSuffix(body, []byte("ies")) {
+	if hasSuffix(body, lib.ToByte("sses")) || hasSuffix(body, lib.ToByte("ies")) {
 		return body[:len(body)-2]
-	} else if hasSuffix(body, []byte("ss")) {
+	} else if hasSuffix(body, lib.ToByte("ss")) {
 		return body
-	} else if hasSuffix(body, []byte("s")) {
+	} else if hasSuffix(body, lib.ToByte("s")) {
 		return body[:len(body)-1]
 	}
 	return body
@@ -79,11 +79,11 @@ func starO(body []byte) bool {
 func oneBA(body []byte) []byte {
 
 	size := len(body)
-	if hasSuffix(body, []byte("at")) {
+	if hasSuffix(body, lib.ToByte("at")) {
 		return append(body, 'e')
-	} else if hasSuffix(body, []byte("bl")) {
+	} else if hasSuffix(body, lib.ToByte("bl")) {
 		return append(body, 'e')
-	} else if hasSuffix(body, []byte("iz")) {
+	} else if hasSuffix(body, lib.ToByte("iz")) {
 		return append(body, 'e')
 	} else if Consonant(body, size-1) && Consonant(body, size-2) && body[size-1] == body[size-2] {
 		if body[size-1] != 'l' && body[size-1] != 's' && body[size-1] != 'z' {
@@ -96,15 +96,15 @@ func oneBA(body []byte) []byte {
 }
 
 func oneB(body []byte) []byte {
-	if hasSuffix(body, []byte("eed")) {
+	if hasSuffix(body, lib.ToByte("eed")) {
 		if Measure(body[:len(body)-3]) > 0 {
 			return body[:len(body)-1]
 		}
-	} else if hasSuffix(body, []byte("ed")) {
+	} else if hasSuffix(body, lib.ToByte("ed")) {
 		if hasVowel(body[:len(body)-2]) {
 			return oneBA(body[:len(body)-2])
 		}
-	} else if hasSuffix(body, []byte("ing")) {
+	} else if hasSuffix(body, lib.ToByte("ing")) {
 		if hasVowel(body[:len(body)-3]) {
 			return oneBA(body[:len(body)-3])
 		}
@@ -113,7 +113,7 @@ func oneB(body []byte) []byte {
 }
 
 func oneC(body []byte) []byte {
-	if hasSuffix(body, []byte("y")) && hasVowel(body[:len(body)-1]) {
+	if hasSuffix(body, lib.ToByte("y")) && hasVowel(body[:len(body)-1]) {
 		body[len(body)-1] = 'i'
 		return body
 	}
@@ -121,89 +121,89 @@ func oneC(body []byte) []byte {
 }
 
 func two(body []byte) []byte {
-	if hasSuffix(body, []byte("ational")) {
+	if hasSuffix(body, lib.ToByte("ational")) {
 		if Measure(body[:len(body)-7]) > 0 {
-			return append(body[:len(body)-7], []byte("ate")...)
+			return append(body[:len(body)-7], lib.ToByte("ate")...)
 		}
-	} else if hasSuffix(body, []byte("tional")) {
+	} else if hasSuffix(body, lib.ToByte("tional")) {
 		if Measure(body[:len(body)-6]) > 0 {
 			return body[:len(body)-2]
 		}
-	} else if hasSuffix(body, []byte("enci")) || hasSuffix(body, []byte("anci")) {
+	} else if hasSuffix(body, lib.ToByte("enci")) || hasSuffix(body, lib.ToByte("anci")) {
 		if Measure(body[:len(body)-4]) > 0 {
 			return append(body[:len(body)-1], 'e')
 		}
-	} else if hasSuffix(body, []byte("izer")) {
+	} else if hasSuffix(body, lib.ToByte("izer")) {
 		if Measure(body[:len(body)-4]) > 0 {
-			return append(body[:len(body)-4], []byte("ize")...)
+			return append(body[:len(body)-4], lib.ToByte("ize")...)
 		}
-	} else if hasSuffix(body, []byte("abli")) {
+	} else if hasSuffix(body, lib.ToByte("abli")) {
 		if Measure(body[:len(body)-4]) > 0 {
-			return append(body[:len(body)-4], []byte("able")...)
+			return append(body[:len(body)-4], lib.ToByte("able")...)
 		}
 		// To match the published algorithm, delete the following phrase
-	} else if hasSuffix(body, []byte("bli")) {
+	} else if hasSuffix(body, lib.ToByte("bli")) {
 		if Measure(body[:len(body)-3]) > 0 {
 			return append(body[:len(body)-1], 'e')
 		}
-	} else if hasSuffix(body, []byte("alli")) {
+	} else if hasSuffix(body, lib.ToByte("alli")) {
 		if Measure(body[:len(body)-4]) > 0 {
-			return append(body[:len(body)-4], []byte("al")...)
+			return append(body[:len(body)-4], lib.ToByte("al")...)
 		}
-	} else if hasSuffix(body, []byte("entli")) {
+	} else if hasSuffix(body, lib.ToByte("entli")) {
 		if Measure(body[:len(body)-5]) > 0 {
-			return append(body[:len(body)-5], []byte("ent")...)
+			return append(body[:len(body)-5], lib.ToByte("ent")...)
 		}
-	} else if hasSuffix(body, []byte("eli")) {
+	} else if hasSuffix(body, lib.ToByte("eli")) {
 		if Measure(body[:len(body)-3]) > 0 {
-			return append(body[:len(body)-3], []byte("e")...)
+			return append(body[:len(body)-3], lib.ToByte("e")...)
 		}
-	} else if hasSuffix(body, []byte("ousli")) {
+	} else if hasSuffix(body, lib.ToByte("ousli")) {
 		if Measure(body[:len(body)-5]) > 0 {
-			return append(body[:len(body)-5], []byte("ous")...)
+			return append(body[:len(body)-5], lib.ToByte("ous")...)
 		}
-	} else if hasSuffix(body, []byte("ization")) {
+	} else if hasSuffix(body, lib.ToByte("ization")) {
 		if Measure(body[:len(body)-7]) > 0 {
-			return append(body[:len(body)-7], []byte("ize")...)
+			return append(body[:len(body)-7], lib.ToByte("ize")...)
 		}
-	} else if hasSuffix(body, []byte("ation")) {
+	} else if hasSuffix(body, lib.ToByte("ation")) {
 		if Measure(body[:len(body)-5]) > 0 {
-			return append(body[:len(body)-5], []byte("ate")...)
+			return append(body[:len(body)-5], lib.ToByte("ate")...)
 		}
-	} else if hasSuffix(body, []byte("ator")) {
+	} else if hasSuffix(body, lib.ToByte("ator")) {
 		if Measure(body[:len(body)-4]) > 0 {
-			return append(body[:len(body)-4], []byte("ate")...)
+			return append(body[:len(body)-4], lib.ToByte("ate")...)
 		}
-	} else if hasSuffix(body, []byte("alism")) {
+	} else if hasSuffix(body, lib.ToByte("alism")) {
 		if Measure(body[:len(body)-5]) > 0 {
-			return append(body[:len(body)-5], []byte("al")...)
+			return append(body[:len(body)-5], lib.ToByte("al")...)
 		}
-	} else if hasSuffix(body, []byte("iveness")) {
+	} else if hasSuffix(body, lib.ToByte("iveness")) {
 		if Measure(body[:len(body)-7]) > 0 {
-			return append(body[:len(body)-7], []byte("ive")...)
+			return append(body[:len(body)-7], lib.ToByte("ive")...)
 		}
-	} else if hasSuffix(body, []byte("fulness")) {
+	} else if hasSuffix(body, lib.ToByte("fulness")) {
 		if Measure(body[:len(body)-7]) > 0 {
-			return append(body[:len(body)-7], []byte("ful")...)
+			return append(body[:len(body)-7], lib.ToByte("ful")...)
 		}
-	} else if hasSuffix(body, []byte("ousness")) {
+	} else if hasSuffix(body, lib.ToByte("ousness")) {
 		if Measure(body[:len(body)-7]) > 0 {
-			return append(body[:len(body)-7], []byte("ous")...)
+			return append(body[:len(body)-7], lib.ToByte("ous")...)
 		}
-	} else if hasSuffix(body, []byte("aliti")) {
+	} else if hasSuffix(body, lib.ToByte("aliti")) {
 		if Measure(body[:len(body)-5]) > 0 {
-			return append(body[:len(body)-5], []byte("al")...)
+			return append(body[:len(body)-5], lib.ToByte("al")...)
 		}
-	} else if hasSuffix(body, []byte("iviti")) {
+	} else if hasSuffix(body, lib.ToByte("iviti")) {
 		if Measure(body[:len(body)-5]) > 0 {
-			return append(body[:len(body)-5], []byte("ive")...)
+			return append(body[:len(body)-5], lib.ToByte("ive")...)
 		}
-	} else if hasSuffix(body, []byte("biliti")) {
+	} else if hasSuffix(body, lib.ToByte("biliti")) {
 		if Measure(body[:len(body)-6]) > 0 {
-			return append(body[:len(body)-6], []byte("ble")...)
+			return append(body[:len(body)-6], lib.ToByte("ble")...)
 		}
 		// To match the published algorithm, delete the following phrase
-	} else if hasSuffix(body, []byte("logi")) {
+	} else if hasSuffix(body, lib.ToByte("logi")) {
 		if Measure(body[:len(body)-4]) > 0 {
 			return body[:len(body)-1]
 		}
@@ -212,31 +212,31 @@ func two(body []byte) []byte {
 }
 
 func three(body []byte) []byte {
-	if hasSuffix(body, []byte("icate")) {
+	if hasSuffix(body, lib.ToByte("icate")) {
 		if Measure(body[:len(body)-5]) > 0 {
 			return body[:len(body)-3]
 		}
-	} else if hasSuffix(body, []byte("ative")) {
+	} else if hasSuffix(body, lib.ToByte("ative")) {
 		if Measure(body[:len(body)-5]) > 0 {
 			return body[:len(body)-5]
 		}
-	} else if hasSuffix(body, []byte("alize")) {
+	} else if hasSuffix(body, lib.ToByte("alize")) {
 		if Measure(body[:len(body)-5]) > 0 {
 			return body[:len(body)-3]
 		}
-	} else if hasSuffix(body, []byte("iciti")) {
+	} else if hasSuffix(body, lib.ToByte("iciti")) {
 		if Measure(body[:len(body)-5]) > 0 {
 			return body[:len(body)-3]
 		}
-	} else if hasSuffix(body, []byte("ical")) {
+	} else if hasSuffix(body, lib.ToByte("ical")) {
 		if Measure(body[:len(body)-4]) > 0 {
 			return body[:len(body)-2]
 		}
-	} else if hasSuffix(body, []byte("ful")) {
+	} else if hasSuffix(body, lib.ToByte("ful")) {
 		if Measure(body[:len(body)-3]) > 0 {
 			return body[:len(body)-3]
 		}
-	} else if hasSuffix(body, []byte("ness")) {
+	} else if hasSuffix(body, lib.ToByte("ness")) {
 		if Measure(body[:len(body)-4]) > 0 {
 			return body[:len(body)-4]
 		}
@@ -245,81 +245,81 @@ func three(body []byte) []byte {
 }
 
 func four(body []byte) []byte {
-	if hasSuffix(body, []byte("al")) {
+	if hasSuffix(body, lib.ToByte("al")) {
 		if Measure(body[:len(body)-2]) > 1 {
 			return body[:len(body)-2]
 		}
-	} else if hasSuffix(body, []byte("ance")) {
+	} else if hasSuffix(body, lib.ToByte("ance")) {
 		if Measure(body[:len(body)-4]) > 1 {
 			return body[:len(body)-4]
 		}
-	} else if hasSuffix(body, []byte("ence")) {
+	} else if hasSuffix(body, lib.ToByte("ence")) {
 		if Measure(body[:len(body)-4]) > 1 {
 			return body[:len(body)-4]
 		}
-	} else if hasSuffix(body, []byte("er")) {
+	} else if hasSuffix(body, lib.ToByte("er")) {
 		if Measure(body[:len(body)-2]) > 1 {
 			return body[:len(body)-2]
 		}
-	} else if hasSuffix(body, []byte("ic")) {
+	} else if hasSuffix(body, lib.ToByte("ic")) {
 		if Measure(body[:len(body)-2]) > 1 {
 			return body[:len(body)-2]
 		}
-	} else if hasSuffix(body, []byte("able")) {
+	} else if hasSuffix(body, lib.ToByte("able")) {
 		if Measure(body[:len(body)-4]) > 1 {
 			return body[:len(body)-4]
 		}
-	} else if hasSuffix(body, []byte("ible")) {
+	} else if hasSuffix(body, lib.ToByte("ible")) {
 		if Measure(body[:len(body)-4]) > 1 {
 			return body[:len(body)-4]
 		}
-	} else if hasSuffix(body, []byte("ant")) {
+	} else if hasSuffix(body, lib.ToByte("ant")) {
 		if Measure(body[:len(body)-3]) > 1 {
 			return body[:len(body)-3]
 		}
-	} else if hasSuffix(body, []byte("ement")) {
+	} else if hasSuffix(body, lib.ToByte("ement")) {
 		if Measure(body[:len(body)-5]) > 1 {
 			return body[:len(body)-5]
 		}
-	} else if hasSuffix(body, []byte("ment")) {
+	} else if hasSuffix(body, lib.ToByte("ment")) {
 		if Measure(body[:len(body)-4]) > 1 {
 			return body[:len(body)-4]
 		}
-	} else if hasSuffix(body, []byte("ent")) {
+	} else if hasSuffix(body, lib.ToByte("ent")) {
 		if Measure(body[:len(body)-3]) > 1 {
 			return body[:len(body)-3]
 		}
-	} else if hasSuffix(body, []byte("ion")) {
+	} else if hasSuffix(body, lib.ToByte("ion")) {
 		if Measure(body[:len(body)-3]) > 1 {
 			if len(body) > 4 && (body[len(body)-4] == 's' || body[len(body)-4] == 't') {
 				return body[:len(body)-3]
 			}
 		}
-	} else if hasSuffix(body, []byte("ou")) {
+	} else if hasSuffix(body, lib.ToByte("ou")) {
 		if Measure(body[:len(body)-2]) > 1 {
 			return body[:len(body)-2]
 		}
-	} else if hasSuffix(body, []byte("ism")) {
+	} else if hasSuffix(body, lib.ToByte("ism")) {
 		if Measure(body[:len(body)-3]) > 1 {
 			return body[:len(body)-3]
 		}
-	} else if hasSuffix(body, []byte("ate")) {
+	} else if hasSuffix(body, lib.ToByte("ate")) {
 		if Measure(body[:len(body)-3]) > 1 {
 			return body[:len(body)-3]
 		}
-	} else if hasSuffix(body, []byte("iti")) {
+	} else if hasSuffix(body, lib.ToByte("iti")) {
 		if Measure(body[:len(body)-3]) > 1 {
 			return body[:len(body)-3]
 		}
-	} else if hasSuffix(body, []byte("ous")) {
+	} else if hasSuffix(body, lib.ToByte("ous")) {
 		if Measure(body[:len(body)-3]) > 1 {
 			return body[:len(body)-3]
 		}
-	} else if hasSuffix(body, []byte("ive")) {
+	} else if hasSuffix(body, lib.ToByte("ive")) {
 		if Measure(body[:len(body)-3]) > 1 {
 			return body[:len(body)-3]
 		}
-	} else if hasSuffix(body, []byte("ize")) {
+	} else if hasSuffix(body, lib.ToByte("ize")) {
 		if Measure(body[:len(body)-3]) > 1 {
 			return body[:len(body)-3]
 		}
@@ -328,9 +328,9 @@ func four(body []byte) []byte {
 }
 
 func fiveA(body []byte) []byte {
-	if hasSuffix(body, []byte("e")) && Measure(body[:len(body)-1]) > 1 {
+	if hasSuffix(body, lib.ToByte("e")) && Measure(body[:len(body)-1]) > 1 {
 		return body[:len(body)-1]
-	} else if hasSuffix(body, []byte("e")) && Measure(body[:len(body)-1]) == 1 && !starO(body[:len(body)-1]) {
+	} else if hasSuffix(body, lib.ToByte("e")) && Measure(body[:len(body)-1]) == 1 && !starO(body[:len(body)-1]) {
 		return body[:len(body)-1]
 	}
 	return body

@@ -61,8 +61,7 @@ func splitSentence(text string) []string {
 	words := make([]string, 0, strings.Count(text, " ")+1)
 	start := 0
 	for i := 0; i < textLen; i++ {
-		char := text[i]
-		if separators[char] {
+		if separators[text[i]] {
 			if start < i {
 				words = append(words, text[start:i])
 			}
@@ -75,22 +74,19 @@ func splitSentence(text string) []string {
 	return words
 }
 
-func Tokenize(params *TokenizeParams, config *Config) (map[string]int, error) {
-	params.Text = lib.ToLower(params.Text)
-	splitText := splitSentence(params.Text)
-	tokens := make(map[string]int, len(splitText)) // Pre-allocate map size
-	for _, token := range splitText {
+func Tokenize(params TokenizeParams, config Config) (map[string]int, error) {
+	tokens := make(map[string]int) // Pre-allocate map size
+	for _, token := range splitSentence(lib.ToLower(params.Text)) {
 		if normToken := normalizeToken(normalizeParams{token: token, language: params.Language}, config); normToken != "" {
 			if _, ok := tokens[normToken]; (!ok && !params.AllowDuplicates) || params.AllowDuplicates {
 				tokens[normToken]++
 			}
 		}
 	}
-	splitText = splitText[:0]
 	return tokens, nil
 }
 
-func normalizeToken(params normalizeParams, config *Config) string {
+func normalizeToken(params normalizeParams, config Config) string {
 	token := params.token
 	if config.EnableStopWords {
 		if _, ok := stopWords[params.language][token]; ok {

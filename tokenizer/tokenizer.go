@@ -46,14 +46,14 @@ func IsSupportedLanguage(language Language) bool {
 	return ok
 }
 
-var separators = map[byte]struct{}{
-	' ': {},
-	'.': {},
-	',': {},
-	';': {},
-	'!': {},
-	'?': {},
-	'-': {},
+var separators = map[byte]bool{
+	' ': true,
+	'.': true,
+	',': true,
+	';': true,
+	'!': true,
+	'?': true,
+	'-': true,
 }
 
 func splitSentence(text string) []string {
@@ -61,7 +61,7 @@ func splitSentence(text string) []string {
 	words := make([]string, 0, strings.Count(text, " ")+1)
 	start := 0
 	for i := 0; i < textLen; i++ {
-		if _, exists := separators[text[i]]; exists {
+		if separators[text[i]] {
 			if start < i {
 				words = append(words, text[start:i])
 			}
@@ -74,73 +74,17 @@ func splitSentence(text string) []string {
 	return words
 }
 
-func Tokenize(params TokenizeParams, config Config) (map[string]int, error) {
-	tokens := tokenize(lib.ToLower(params.Text))
-
-	for token := range tokens {
-		stemmed := Stem(token)
-		if stemmed != token {
-			tokens[stemmed] += tokens[token]
-			delete(tokens, token)
-		}
-	}
-
-	FilterStopWords(tokens, stopWords[params.Language])
-	return tokens, nil
-}
-
-func tokenize(input string) map[string]int {
-	tokenCounts := map[string]int{}
-	start := -1
-	for i, r := range input {
-		if unicode.IsLetter(r) {
-			if start == -1 {
-				start = i
-			}
-		} else {
-			if start != -1 {
-				token := input[start:i]
-				tokenCounts[token]++
-				start = -1
+func Tokenize(params TokenizeParams, config Config, tokens map[string]int) error {
+	for _, token := range splitSentence(lib.ToLower(params.Text)) {
+		if normToken := normalizeToken(normalizeParams{token: token, language: params.Language}, config); normToken != "" {
+			if _, ok := tokens[normToken]; (!ok && !params.AllowDuplicates) || params.AllowDuplicates {
+				tokens[normToken]++
 			}
 		}
 	}
-	if start != -1 {
-		token := input[start:]
-		tokenCounts[token]++
-	}
-	return tokenCounts
+	return nil
 }
 
-// Simplified Porter Stemmer
-func Stem(word string) string {
-	// Implement a simple version of the Porter Stemmer rules
-	if len(word) <= 3 {
-		return word
-	}
-
-	switch {
-	case len(word) > 4 && word[len(word)-4:] == "sses":
-		word = word[:len(word)-2]
-	case len(word) > 3 && word[len(word)-3:] == "ies":
-		word = word[:len(word)-2]
-	case len(word) > 2 && word[len(word)-2:] == "ss":
-		// Do nothing
-	case len(word) > 1 && word[len(word)-1:] == "s":
-		word = word[:len(word)-1]
-	}
-
-	return word
-}
-
-// FilterStopWords filters out stop words from the token map
-func FilterStopWords(tokens map[string]int, stopWords map[string]struct{}) {
-	for token := range tokens {
-		if _, found := stopWords[token]; found {
-			delete(tokens, token)
-		}
-	}
-}
 func normalizeToken(params normalizeParams, config Config) string {
 	token := params.token
 	if config.EnableStopWords {

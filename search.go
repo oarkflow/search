@@ -496,12 +496,13 @@ func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, err
 	if language == "" {
 		language = tokenizer.ENGLISH
 	}
-	tokens, _ := tokenizer.Tokenize(tokenizer.TokenizeParams{
+	tokens := tokensPool.Get()
+	clear(tokens)
+	tokenizer.Tokenize(tokenizer.TokenizeParams{
 		Text:            params.Query,
 		Language:        language,
 		AllowDuplicates: false,
-	}, *db.tokenizerConfig)
-
+	}, *db.tokenizerConfig, tokens)
 	for _, prop := range properties {
 		index, ok := db.indexes.Get(prop)
 		if !ok {
@@ -520,6 +521,7 @@ func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, err
 		}
 	}
 	clear(tokens)
+	tokensPool.Put(tokens)
 	return allIdScores, nil
 }
 
@@ -545,22 +547,31 @@ func (db *Engine[Schema]) getDocuments(scores map[int64]float64) Hits[Schema] {
 	return results
 }
 
+type Map map[string]int
+
+var tokensPool = lib.NewPool[map[string]int](func() map[string]int {
+	return make(map[string]int)
+})
+
 func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, language tokenizer.Language) {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
-		tokens, _ := tokenizer.Tokenize(tokenizer.TokenizeParams{
-			Text:            lib.ToString(document[propName]),
+		text := lib.ToString(document[propName])
+		tokens := tokensPool.Get()
+		clear(tokens)
+		tokenizer.Tokenize(tokenizer.TokenizeParams{
+			Text:            text,
 			Language:        language,
 			AllowDuplicates: true,
-		}, *db.tokenizerConfig)
-
+		}, *db.tokenizerConfig, tokens)
 		index.Insert(&IndexParams{
 			Id:        id,
 			Tokens:    tokens,
 			DocsCount: db.DocumentLen(),
 		})
 		clear(tokens)
+		tokensPool.Put(tokens)
 		return true
 	})
 }
@@ -569,18 +580,20 @@ func (db *Engine[Schema]) deindexDocument(id int64, document map[string]any, lan
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
-		tokens, _ := tokenizer.Tokenize(tokenizer.TokenizeParams{
+		tokens := tokensPool.Get()
+		clear(tokens)
+		tokenizer.Tokenize(tokenizer.TokenizeParams{
 			Text:            lib.ToString(document[propName]),
 			Language:        language,
 			AllowDuplicates: false,
-		}, *db.tokenizerConfig)
-
+		}, *db.tokenizerConfig, tokens)
 		index.Delete(&IndexParams{
 			Id:        id,
 			Tokens:    tokens,
 			DocsCount: db.DocumentLen(),
 		})
 		clear(tokens)
+		tokensPool.Put(tokens)
 		return true
 	})
 }

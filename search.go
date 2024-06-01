@@ -545,12 +545,12 @@ func (db *Engine[Schema]) getDocuments(scores map[int64]float64) Hits[Schema] {
 	return results
 }
 
-func (db *Engine[Schema]) indexDocument(id int64, document map[string]string, language tokenizer.Language) {
+func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, language tokenizer.Language) {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
 		tokens, _ := tokenizer.Tokenize(tokenizer.TokenizeParams{
-			Text:            document[propName],
+			Text:            lib.ToString(document[propName]),
 			Language:        language,
 			AllowDuplicates: true,
 		}, *db.tokenizerConfig)
@@ -565,12 +565,12 @@ func (db *Engine[Schema]) indexDocument(id int64, document map[string]string, la
 	})
 }
 
-func (db *Engine[Schema]) deindexDocument(id int64, document map[string]string, language tokenizer.Language) {
+func (db *Engine[Schema]) deindexDocument(id int64, document map[string]any, language tokenizer.Language) {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
 		tokens, _ := tokenizer.Tokenize(tokenizer.TokenizeParams{
-			Text:            document[propName],
+			Text:            lib.ToString(document[propName]),
 			Language:        language,
 			AllowDuplicates: false,
 		}, *db.tokenizerConfig)
@@ -585,27 +585,30 @@ func (db *Engine[Schema]) deindexDocument(id int64, document map[string]string, 
 	})
 }
 
-func (db *Engine[Schema]) getFieldsFromMap(obj any) map[string]string {
-	fields := make(map[string]string)
+func (db *Engine[Schema]) getFieldsFromMap(obj any) map[string]any {
 	m, ok := obj.(map[string]any)
 	if !ok {
-		return fields
+		return map[string]any{}
 	}
+	if db.rules == nil {
+		return m
+	}
+	fields := make(map[string]any)
 	rules := db.rules
 	for field, val := range m {
 		if rules == nil || rules[field] {
 			if str, ok := val.(string); ok {
 				fields[field] = str
 			} else {
-				fields[field] = fmt.Sprint(val)
+				fields[field] = val
 			}
 		}
 	}
 	return fields
 }
 
-func (db *Engine[Schema]) getFieldsFromStruct(obj any, prefix ...string) map[string]string {
-	fields := make(map[string]string)
+func (db *Engine[Schema]) getFieldsFromStruct(obj any, prefix ...string) map[string]any {
+	fields := make(map[string]any)
 	t := reflect.TypeOf(obj)
 	v := reflect.ValueOf(obj)
 	visibleFields := reflect.VisibleFields(t)
@@ -644,7 +647,7 @@ func (db *Engine[Schema]) getFieldsFromStruct(obj any, prefix ...string) map[str
 	return fields
 }
 
-func (db *Engine[Schema]) flattenSchema(obj any, prefix ...string) map[string]string {
+func (db *Engine[Schema]) flattenSchema(obj any, prefix ...string) map[string]any {
 	if obj == nil {
 		return nil
 	}
@@ -654,7 +657,7 @@ func (db *Engine[Schema]) flattenSchema(obj any, prefix ...string) map[string]st
 	case reflect.Map:
 		return db.getFieldsFromMap(obj)
 	default:
-		return map[string]string{
+		return map[string]any{
 			db.sliceField: fmt.Sprint(obj),
 		}
 	}

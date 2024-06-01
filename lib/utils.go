@@ -15,6 +15,28 @@ func defaultCheck(dataVal, val any) bool {
 	return fmt.Sprintf("%v", dataVal) == fmt.Sprintf("%v", val)
 }
 
+func ToString(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return string(rune(reflect.ValueOf(value).Int()))
+	case float32:
+		return strconv.FormatFloat(float64(v), 'g', -1, 64) // Adjust precision and bit size as needed
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64) // Adjust precision and bit size as needed
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	case nil:
+		return "nil"
+	default:
+		return reflect.TypeOf(value).String()
+	}
+}
+
 func IsEqual(dataVal, val any) bool {
 	if reflect.TypeOf(dataVal) == reflect.TypeOf(val) {
 		return reflect.DeepEqual(dataVal, val)

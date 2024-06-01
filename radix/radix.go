@@ -1,8 +1,6 @@
 package radix
 
 import (
-	"sync"
-
 	"github.com/oarkflow/search/lib"
 )
 
@@ -36,25 +34,11 @@ func (t *Trie) Len() int {
 	return t.length
 }
 
-var recInfo sync.Pool
-
-func init() {
-	recInfo.New = func() interface{} {
-		return &RecordInfo{}
-	}
-}
-
-func newRec(id int64, feq float64) *RecordInfo {
-	n := recInfo.Get().(*RecordInfo)
-	n.Id = id
-	n.TermFrequency = feq
-	return n
-}
-
 func (t *Trie) Insert(params *InsertParams) {
 	word := []rune(params.Word)
-
-	newInfo := newRec(params.Id, params.TermFrequency)
+	newInfo := RecordPool.Get()
+	newInfo.Id = params.Id
+	newInfo.TermFrequency = params.TermFrequency
 	currNode := t.root
 
 	for i := 0; i < len(word); {
@@ -116,6 +100,9 @@ func (t *Trie) Insert(params *InsertParams) {
 			return
 		}
 	}
+	newInfo.Id = 0
+	newInfo.TermFrequency = 0
+	RecordPool.Put(newInfo)
 }
 
 func (t *Trie) Delete(params *DeleteParams) {

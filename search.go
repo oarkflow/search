@@ -547,12 +547,6 @@ func (db *Engine[Schema]) getDocuments(scores map[int64]float64) Hits[Schema] {
 	return results
 }
 
-type Map map[string]int
-
-var tokensPool = lib.NewPool[map[string]int](func() map[string]int {
-	return make(map[string]int)
-})
-
 func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, language tokenizer.Language) {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
@@ -565,13 +559,18 @@ func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, langu
 			Language:        language,
 			AllowDuplicates: true,
 		}, *db.tokenizerConfig, tokens)
-		index.Insert(&IndexParams{
-			Id:        id,
-			Tokens:    tokens,
-			DocsCount: db.DocumentLen(),
-		})
+		indexParams := indexPool.Get()
+		indexParams.Id = id
+		indexParams.Tokens = tokens
+		indexParams.DocsCount = db.DocumentLen()
+		index.Insert(indexParams)
 		clear(tokens)
 		tokensPool.Put(tokens)
+
+		indexParams.Id = 0
+		indexParams.Tokens = nil
+		indexParams.DocsCount = 0
+		indexPool.Put(indexParams)
 		return true
 	})
 }

@@ -2,7 +2,6 @@ package radix
 
 import (
 	"sort"
-	"sync"
 
 	"github.com/oarkflow/search/lib"
 )
@@ -18,16 +17,8 @@ type node struct {
 	infos    []*RecordInfo
 }
 
-var nodePool sync.Pool
-
-func init() {
-	nodePool.New = func() interface{} {
-		return &node{}
-	}
-}
-
 func newNode(subword []rune) *node {
-	n := nodePool.Get().(*node)
+	n := NodePool.Get()
 	n.subword = subword
 	n.children = make(map[rune]*node)
 	n.infos = make([]*RecordInfo, 0)

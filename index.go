@@ -40,11 +40,15 @@ func (idx *Index) Insert(params *IndexParams) {
 
 	for token, count := range params.Tokens {
 		tokenFrequency := float64(count) / float64(totalTokens)
-		idx.data.Insert(&radix.InsertParams{
-			Id:            params.Id,
-			Word:          token,
-			TermFrequency: tokenFrequency,
-		})
+		insertParams := radix.InsertPool.Get()
+		insertParams.Id = params.Id
+		insertParams.Word = token
+		insertParams.TermFrequency = tokenFrequency
+		idx.data.Insert(insertParams)
+		insertParams.Id = 0
+		insertParams.Word = ""
+		insertParams.TermFrequency = 0
+		radix.InsertPool.Put(insertParams)
 	}
 
 	idx.avgFieldLength = (idx.avgFieldLength*float64(params.DocsCount-1) + float64(totalTokens)) / float64(params.DocsCount)

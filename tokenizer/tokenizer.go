@@ -46,14 +46,14 @@ func IsSupportedLanguage(language Language) bool {
 	return ok
 }
 
-var separators = map[byte]bool{
-	' ': true,
-	'.': true,
-	',': true,
-	';': true,
-	'!': true,
-	'?': true,
-	'-': true,
+var separators = map[byte]struct{}{
+	' ': {},
+	'.': {},
+	',': {},
+	';': {},
+	'!': {},
+	'?': {},
+	'-': {},
 }
 
 func splitSentence(text string) []string {
@@ -61,7 +61,7 @@ func splitSentence(text string) []string {
 	words := make([]string, 0, strings.Count(text, " ")+1)
 	start := 0
 	for i := 0; i < textLen; i++ {
-		if separators[text[i]] {
+		if _, exists := separators[text[i]]; exists {
 			if start < i {
 				words = append(words, text[start:i])
 			}
@@ -75,7 +75,7 @@ func splitSentence(text string) []string {
 }
 
 func Tokenize(params TokenizeParams, config Config, tokens map[string]int) error {
-	for _, token := range splitSentence(lib.ToLower(params.Text)) {
+	for _, token := range strings.Fields(lib.ToLower(params.Text)) {
 		if normToken := normalizeToken(normalizeParams{token: token, language: params.Language}, config); normToken != "" {
 			if _, ok := tokens[normToken]; (!ok && !params.AllowDuplicates) || params.AllowDuplicates {
 				tokens[normToken]++

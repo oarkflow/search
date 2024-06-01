@@ -13,7 +13,7 @@ import (
 )
 
 func TestMap(t *testing.T) {
-	icds := readFileAsMap("cpt_codes.json")
+	icds := readFileAsMap("icd10_codes.json")
 	db, _ := search.New[map[string]any](&search.Config{
 		Storage:         "memory",
 		DefaultLanguage: tokenizer.ENGLISH,
@@ -25,14 +25,14 @@ func TestMap(t *testing.T) {
 	})
 	var startTime = time.Now()
 	before := stats()
-	db.InsertWithPool(icds, 3, 100)
+	db.InsertWithPool(icds, 1, 1)
 	after := stats()
 	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	fmt.Println("Total Documents", db.DocumentLen())
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()
 	s, err := db.Search(&search.Params{
-		Query: "200001025",
+		Query: "presence",
 	})
 	if err != nil {
 		panic(err)

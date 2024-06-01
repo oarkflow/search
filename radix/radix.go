@@ -41,6 +41,85 @@ func (t *Trie) Insert(params *InsertParams) {
 	newInfo.TermFrequency = params.TermFrequency
 	currNode := t.root
 
+	i := 0
+	for i < len(word) {
+		currentRune := word[i]
+		if currChild, ok := currNode.children[currentRune]; ok {
+			// Find common prefix length without allocation
+			commonPrefix, _ := lib.CommonPrefix(currChild.subword, word[i:])
+			commonPrefixLength := len(commonPrefix)
+			subwordLength := len(currChild.subword)
+			wordLength := len(word[i:])
+
+			if commonPrefixLength == wordLength && commonPrefixLength == subwordLength {
+				currChild.addRecordInfo(newInfo)
+				return
+			}
+
+			if commonPrefixLength == wordLength && commonPrefixLength < subwordLength {
+				n := newNode(word[i:])
+				n.addRecordInfo(newInfo)
+
+				currChild.subword = currChild.subword[commonPrefixLength:]
+				n.addChild(currChild)
+				currNode.addChild(n)
+
+				t.length++
+				return
+			}
+
+			if commonPrefixLength < wordLength && commonPrefixLength < subwordLength {
+				n := newNode(word[i+commonPrefixLength:])
+				n.addRecordInfo(newInfo)
+
+				inBetweenNode := newNode(word[i : i+commonPrefixLength])
+				currNode.addChild(inBetweenNode)
+
+				currChild.subword = currChild.subword[commonPrefixLength:]
+				inBetweenNode.addChild(currChild)
+				inBetweenNode.addChild(n)
+
+				t.length++
+				return
+			}
+
+			i += subwordLength
+			currNode = currChild
+		} else {
+			n := newNode(word[i:])
+			n.addRecordInfo(newInfo)
+
+			currNode.addChild(n)
+			t.length++
+			return
+		}
+	}
+	newInfo.Id = 0
+	newInfo.TermFrequency = 0
+	RecordPool.Put(newInfo)
+}
+
+func commonPrefixLength(a, b []rune) int {
+	minLength := len(a)
+	if len(b) < minLength {
+		minLength = len(b)
+	}
+	var i int
+	for i = 0; i < minLength; i++ {
+		if a[i] != b[i] {
+			break
+		}
+	}
+	return i
+}
+
+func (t *Trie) InsertOld(params *InsertParams) {
+	word := []rune(params.Word)
+	newInfo := RecordPool.Get()
+	newInfo.Id = params.Id
+	newInfo.TermFrequency = params.TermFrequency
+	currNode := t.root
+
 	for i := 0; i < len(word); {
 		wordAtIndex := word[i:]
 
@@ -91,7 +170,7 @@ func (t *Trie) Insert(params *InsertParams) {
 			// navigate in the child node
 			currNode = currChild
 		} else {
-			// if the node for the curr character doesn't exist create a new child node
+			// if the node for the curr character doesn't exist, create a new child node
 			n := newNode(wordAtIndex)
 			n.addRecordInfo(newInfo)
 

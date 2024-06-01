@@ -30,7 +30,7 @@ func Paginate(offset int, limit int, sliceLength int) (int, int) {
 	return offset, end
 }
 
-func CommonPrefix(a []rune, b []rune) ([]rune, bool) {
+func CommonPrefixOld(a []rune, b []rune) ([]rune, bool) {
 	minLength := int(math.Min(float64(len(a)), float64(len(b))))
 	commonPrefix := make([]rune, 0, minLength)
 	equal := len(a) == len(b)
@@ -44,6 +44,24 @@ func CommonPrefix(a []rune, b []rune) ([]rune, bool) {
 	}
 
 	return commonPrefix, equal
+}
+
+func CommonPrefix(a []rune, b []rune) ([]rune, bool) {
+	lenA := len(a)
+	lenB := len(b)
+	minLength := lenA
+	if lenB < lenA {
+		minLength = lenB
+	}
+
+	var i int
+	for i = 0; i < minLength; i++ {
+		if a[i] != b[i] {
+			break
+		}
+	}
+
+	return a[:i], lenA == lenB && i == minLength
 }
 
 func BoundedLevenshtein(a []rune, b []rune, tolerance int) (int, bool) {

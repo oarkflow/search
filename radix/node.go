@@ -18,11 +18,11 @@ type node struct {
 }
 
 func newNode(subword []rune) *node {
-	n := NodePool.Get()
-	n.subword = subword
-	n.children = make(map[rune]*node)
-	n.infos = make([]*RecordInfo, 0)
-	return n
+	return &node{
+		subword:  subword,
+		children: make(map[rune]*node),
+		infos:    make([]*RecordInfo, 0),
+	}
 }
 
 func (n *node) addChild(child *node) {

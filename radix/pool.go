@@ -5,11 +5,14 @@ import (
 )
 
 var (
-	InsertPool lib.Pool[*InsertParams]
-	RecordPool lib.Pool[*RecordInfo]
+	nodePool lib.Pool[*node]
 )
 
 func init() {
-	InsertPool = lib.NewPool[*InsertParams](func() *InsertParams { return &InsertParams{} })
-	RecordPool = lib.NewPool[*RecordInfo](func() *RecordInfo { return &RecordInfo{} })
+	nodePool = lib.NewPool[*node](func() *node {
+		return &node{
+			children: make(map[rune]*node),
+			infos:    make(map[int64]float64),
+		}
+	})
 }

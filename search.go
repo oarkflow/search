@@ -562,18 +562,9 @@ func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, langu
 			Language:        language,
 			AllowDuplicates: true,
 		}, *db.tokenizerConfig, tokens)
-		indexParams := indexPool.Get()
-		indexParams.Id = id
-		indexParams.Tokens = tokens
-		indexParams.DocsCount = db.DocumentLen()
-		index.Insert(indexParams)
+		index.Insert(id, tokens, db.DocumentLen())
 		clear(tokens)
 		tokensPool.Put(tokens)
-
-		indexParams.Id = 0
-		indexParams.Tokens = nil
-		indexParams.DocsCount = 0
-		indexPool.Put(indexParams)
 		return true
 	})
 }
@@ -589,11 +580,7 @@ func (db *Engine[Schema]) deindexDocument(id int64, document map[string]any, lan
 			Language:        language,
 			AllowDuplicates: false,
 		}, *db.tokenizerConfig, tokens)
-		index.Delete(&IndexParams{
-			Id:        id,
-			Tokens:    tokens,
-			DocsCount: db.DocumentLen(),
-		})
+		index.Delete(id, tokens, db.DocumentLen())
 		clear(tokens)
 		tokensPool.Put(tokens)
 		return true

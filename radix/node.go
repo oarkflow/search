@@ -6,11 +6,6 @@ import (
 	"github.com/oarkflow/search/lib"
 )
 
-type RecordInfo struct {
-	Id            int64
-	TermFrequency float64
-}
-
 type node struct {
 	subword  []rune
 	children map[rune]*node
@@ -18,11 +13,24 @@ type node struct {
 }
 
 func newNode(subword []rune) *node {
-	return &node{
-		subword:  subword,
-		children: make(map[rune]*node),
-		infos:    make(map[int64]float64, 0),
+	n := nodePool.Get()
+	n.subword = subword
+	// Clear the maps (or reinitialize if needed)
+	for k := range n.children {
+		delete(n.children, k)
 	}
+	for k := range n.infos {
+		delete(n.infos, k)
+	}
+	return n
+}
+
+func (n *node) putNode() {
+	nodePool.Put(n)
+}
+
+func (n *node) addData(id int64, frequency float64) {
+	n.infos[id] = frequency
 }
 
 func (n *node) addChild(child *node) {
@@ -37,15 +45,11 @@ func (n *node) removeChild(child *node) {
 	}
 }
 
-func (n *node) addRecordInfo(id int64, frequency float64) {
-	n.infos[id] = frequency
-}
-
-func (n *node) removeRecordInfo(id int64) {
+func (n *node) removeData(id int64) {
 	delete(n.infos, id)
 }
 
-func findAllRecordInfos(n *node, word []rune, term []rune, tolerance int, exact bool) map[int64]float64 {
+func (n *node) findData(word []rune, term []rune, tolerance int, exact bool) map[int64]float64 {
 	results := make(map[int64]float64)
 	stack := [][2]interface{}{{n, word}}
 
@@ -69,7 +73,7 @@ func findAllRecordInfos(n *node, word []rune, term []rune, tolerance int, exact 
 			stack = append(stack, [2]interface{}{child, append(currWord, child.subword...)})
 		}
 	}
-
+	n.putNode()
 	return results
 }
 

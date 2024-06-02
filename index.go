@@ -35,57 +35,36 @@ func NewIndex() *Index {
 	}
 }
 
-func (idx *Index) Insert(params *IndexParams) {
-	totalTokens := len(params.Tokens)
-	for token, count := range params.Tokens {
+func (idx *Index) Insert(id int64, tokens map[string]int, docsCount int) {
+	totalTokens := len(tokens)
+	for token, count := range tokens {
 		tokenFrequency := float64(count) / float64(totalTokens)
-		insertParams := radix.InsertPool.Get()
-		insertParams.Id = params.Id
-		insertParams.Word = token
-		insertParams.TermFrequency = tokenFrequency
-		idx.data.Insert(insertParams)
-		insertParams.Id = 0
-		insertParams.Word = ""
-		insertParams.TermFrequency = 0
-		radix.InsertPool.Put(insertParams)
+		idx.data.Insert(id, token, tokenFrequency)
 	}
 
-	idx.avgFieldLength = (idx.avgFieldLength*float64(params.DocsCount-1) + float64(totalTokens)) / float64(params.DocsCount)
-	idx.fieldLengths[params.Id] = totalTokens
+	idx.avgFieldLength = (idx.avgFieldLength*float64(docsCount-1) + float64(totalTokens)) / float64(docsCount)
+	idx.fieldLengths[id] = totalTokens
 }
 
-func (idx *Index) Delete(params *IndexParams) {
-	for token := range params.Tokens {
-		idx.data.Delete(&radix.DeleteParams{
-			Id:   params.Id,
-			Word: token,
-		})
+func (idx *Index) Delete(id int64, tokens map[string]int, docsCount int) {
+	for token := range tokens {
+		idx.data.Delete(id, token)
 		idx.tokenOccurrences[token]--
 		if idx.tokenOccurrences[token] == 0 {
 			delete(idx.tokenOccurrences, token)
 		}
 	}
 
-	idx.avgFieldLength = (idx.avgFieldLength*float64(params.DocsCount) - float64(len(params.Tokens))) / float64(params.DocsCount-1)
-	delete(idx.fieldLengths, params.Id)
+	idx.avgFieldLength = (idx.avgFieldLength*float64(docsCount) - float64(len(tokens))) / float64(docsCount-1)
+	delete(idx.fieldLengths, id)
 }
 
 func (idx *Index) Find(params *FindParams) map[int64]float64 {
 	idScores := make(map[int64]float64)
 	idTokensCount := make(map[int64]int)
-	// commonKeys := make(map[string][]int64)
 	for token := range params.Tokens {
-		infos := idx.data.Find(&radix.FindParams{
-			Term:      token,
-			Tolerance: params.Tolerance,
-			Exact:     params.Exact,
-		})
+		infos := idx.data.Find(token, params.Tolerance, params.Exact)
 		for id, frequency := range infos {
-			/*
-				if params.BoolMode == AND {
-					commonKeys[token] = append(commonKeys[token], info.Id)
-				}
-			*/
 			idScores[id] += lib.BM25(
 				frequency,
 				idx.tokenOccurrences[token],
@@ -99,28 +78,6 @@ func (idx *Index) Find(params *FindParams) map[int64]float64 {
 			idTokensCount[id]++
 		}
 	}
-	/*
-		if params.BoolMode == AND {
-			var keys [][]int64
-			for _, k := range commonKeys {
-				keys = append(keys, k)
-			}
-			if len(keys) > 0 {
-				d := lib.Intersection(keys...)
-				for id := range idScores {
-					if !slices.Contains(d, id) {
-						delete(idScores, id)
-					}
-				}
-			}
-
-			for id, tokensCount := range idTokensCount {
-				if tokensCount != len(params.Tokens) {
-					delete(idScores, id)
-				}
-			}
-		}
-	*/
 	for id, tokensCount := range idTokensCount {
 		if params.BoolMode == AND && tokensCount != len(params.Tokens) {
 			delete(idScores, id)

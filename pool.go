@@ -6,10 +6,8 @@ import (
 
 var (
 	tokensPool lib.Pool[map[string]int]
-	indexPool  lib.Pool[*IndexParams]
 )
 
 func init() {
 	tokensPool = lib.NewPool[map[string]int](func() map[string]int { return make(map[string]int) })
-	indexPool = lib.NewPool[*IndexParams](func() *IndexParams { return &IndexParams{} })
 }

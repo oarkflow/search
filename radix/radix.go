@@ -36,9 +36,6 @@ func (t *Trie) Len() int {
 
 func (t *Trie) Insert(params *InsertParams) {
 	word := []rune(params.Word)
-	newInfo := RecordPool.Get()
-	newInfo.Id = params.Id
-	newInfo.TermFrequency = params.TermFrequency
 	currNode := t.root
 
 	i := 0
@@ -52,13 +49,13 @@ func (t *Trie) Insert(params *InsertParams) {
 			wordLength := len(word[i:])
 
 			if commonPrefixLength == wordLength && commonPrefixLength == subwordLength {
-				currChild.addRecordInfo(newInfo)
+				currChild.addRecordInfo(params.Id, params.TermFrequency)
 				return
 			}
 
 			if commonPrefixLength == wordLength && commonPrefixLength < subwordLength {
 				n := newNode(word[i:])
-				n.addRecordInfo(newInfo)
+				n.addRecordInfo(params.Id, params.TermFrequency)
 
 				currChild.subword = currChild.subword[commonPrefixLength:]
 				n.addChild(currChild)
@@ -70,7 +67,7 @@ func (t *Trie) Insert(params *InsertParams) {
 
 			if commonPrefixLength < wordLength && commonPrefixLength < subwordLength {
 				n := newNode(word[i+commonPrefixLength:])
-				n.addRecordInfo(newInfo)
+				n.addRecordInfo(params.Id, params.TermFrequency)
 
 				inBetweenNode := newNode(word[i : i+commonPrefixLength])
 				currNode.addChild(inBetweenNode)
@@ -87,37 +84,17 @@ func (t *Trie) Insert(params *InsertParams) {
 			currNode = currChild
 		} else {
 			n := newNode(word[i:])
-			n.addRecordInfo(newInfo)
+			n.addRecordInfo(params.Id, params.TermFrequency)
 
 			currNode.addChild(n)
 			t.length++
 			return
 		}
 	}
-	newInfo.Id = 0
-	newInfo.TermFrequency = 0
-	RecordPool.Put(newInfo)
-}
-
-func commonPrefixLength(a, b []rune) int {
-	minLength := len(a)
-	if len(b) < minLength {
-		minLength = len(b)
-	}
-	var i int
-	for i = 0; i < minLength; i++ {
-		if a[i] != b[i] {
-			break
-		}
-	}
-	return i
 }
 
 func (t *Trie) InsertOld(params *InsertParams) {
 	word := []rune(params.Word)
-	newInfo := RecordPool.Get()
-	newInfo.Id = params.Id
-	newInfo.TermFrequency = params.TermFrequency
 	currNode := t.root
 
 	for i := 0; i < len(word); {
@@ -131,14 +108,14 @@ func (t *Trie) InsertOld(params *InsertParams) {
 
 			// the wordAtIndex matches exactly with an existing child node
 			if commonPrefixLength == wordLength && commonPrefixLength == subwordLength {
-				currChild.addRecordInfo(newInfo)
+				currChild.addRecordInfo(params.Id, params.TermFrequency)
 				return
 			}
 
 			// the wordAtIndex is completely contained in the child node subword
 			if commonPrefixLength == wordLength && commonPrefixLength < subwordLength {
 				n := newNode(wordAtIndex)
-				n.addRecordInfo(newInfo)
+				n.addRecordInfo(params.Id, params.TermFrequency)
 
 				currChild.subword = currChild.subword[commonPrefixLength:]
 				n.addChild(currChild)
@@ -151,7 +128,7 @@ func (t *Trie) InsertOld(params *InsertParams) {
 			// the wordAtIndex is partially contained in the child node subword
 			if commonPrefixLength < wordLength && commonPrefixLength < subwordLength {
 				n := newNode(wordAtIndex[commonPrefixLength:])
-				n.addRecordInfo(newInfo)
+				n.addRecordInfo(params.Id, params.TermFrequency)
 
 				inBetweenNode := newNode(wordAtIndex[:commonPrefixLength])
 				currNode.addChild(inBetweenNode)
@@ -172,16 +149,13 @@ func (t *Trie) InsertOld(params *InsertParams) {
 		} else {
 			// if the node for the curr character doesn't exist, create a new child node
 			n := newNode(wordAtIndex)
-			n.addRecordInfo(newInfo)
+			n.addRecordInfo(params.Id, params.TermFrequency)
 
 			currNode.addChild(n)
 			t.length++
 			return
 		}
 	}
-	newInfo.Id = 0
-	newInfo.TermFrequency = 0
-	RecordPool.Put(newInfo)
 }
 
 func (t *Trie) Delete(params *DeleteParams) {
@@ -225,7 +199,7 @@ func (t *Trie) Delete(params *DeleteParams) {
 	}
 }
 
-func (t *Trie) Find(params *FindParams) []*RecordInfo {
+func (t *Trie) Find(params *FindParams) map[int64]float64 {
 	term := []rune(params.Term)
 	currNode := t.root
 	currNodeWord := currNode.subword

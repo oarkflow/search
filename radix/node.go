@@ -1,7 +1,7 @@
 package radix
 
 import (
-	"sort"
+	"maps"
 
 	"github.com/oarkflow/search/lib"
 )
@@ -14,14 +14,14 @@ type RecordInfo struct {
 type node struct {
 	subword  []rune
 	children map[rune]*node
-	infos    []*RecordInfo
+	infos    map[int64]float64
 }
 
 func newNode(subword []rune) *node {
 	return &node{
 		subword:  subword,
 		children: make(map[rune]*node),
-		infos:    make([]*RecordInfo, 0),
+		infos:    make(map[int64]float64, 0),
 	}
 }
 
@@ -37,31 +37,16 @@ func (n *node) removeChild(child *node) {
 	}
 }
 
-func (n *node) addRecordInfo(info *RecordInfo) {
-	num := len(n.infos)
-	i := sort.Search(num, func(i int) bool { return n.infos[i].Id >= info.Id })
-
-	// Combine slice growth and element insertion
-	n.infos = append(n.infos[:i], append([]*RecordInfo{info}, n.infos[i:]...)...)
+func (n *node) addRecordInfo(id int64, frequency float64) {
+	n.infos[id] = frequency
 }
 
-func (n *node) removeRecordInfo(id int64) bool {
-	num := len(n.infos)
-	idx := sort.Search(num, func(i int) bool {
-		return n.infos[i].Id >= id
-	})
-
-	if idx < num && n.infos[idx].Id == id {
-		copy(n.infos[idx:], n.infos[idx+1:])
-		n.infos[len(n.infos)-1] = &RecordInfo{}
-		n.infos = n.infos[:len(n.infos)-1]
-		return true
-	}
-	return false
+func (n *node) removeRecordInfo(id int64) {
+	delete(n.infos, id)
 }
 
-func findAllRecordInfos(n *node, word []rune, term []rune, tolerance int, exact bool) []*RecordInfo {
-	var results []*RecordInfo
+func findAllRecordInfos(n *node, word []rune, term []rune, tolerance int, exact bool) map[int64]float64 {
+	results := make(map[int64]float64)
 	stack := [][2]interface{}{{n, word}}
 
 	for len(stack) > 0 {
@@ -74,10 +59,10 @@ func findAllRecordInfos(n *node, word []rune, term []rune, tolerance int, exact 
 
 		if tolerance > 0 {
 			if _, isBounded := lib.BoundedLevenshtein(currWord, term, tolerance); isBounded {
-				results = append(results, currNode.infos...)
+				maps.Copy(results, currNode.infos)
 			}
 		} else {
-			results = append(results, currNode.infos...)
+			maps.Copy(results, currNode.infos)
 		}
 
 		for _, child := range currNode.children {

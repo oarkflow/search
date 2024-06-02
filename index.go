@@ -80,23 +80,23 @@ func (idx *Index) Find(params *FindParams) map[int64]float64 {
 			Tolerance: params.Tolerance,
 			Exact:     params.Exact,
 		})
-		for _, info := range infos {
+		for id, frequency := range infos {
 			/*
 				if params.BoolMode == AND {
 					commonKeys[token] = append(commonKeys[token], info.Id)
 				}
 			*/
-			idScores[info.Id] += lib.BM25(
-				info.TermFrequency,
+			idScores[id] += lib.BM25(
+				frequency,
 				idx.tokenOccurrences[token],
-				idx.fieldLengths[info.Id],
+				idx.fieldLengths[id],
 				idx.avgFieldLength,
 				params.DocsCount,
 				params.Relevance.K,
 				params.Relevance.B,
 				params.Relevance.D,
 			)
-			idTokensCount[info.Id]++
+			idTokensCount[id]++
 		}
 	}
 	/*

@@ -11,7 +11,7 @@ import (
 )
 
 func TestMap(t *testing.T) {
-	icds := lib.ReadFileAsMap("icd10_codes.json")
+	icds := lib.ReadFileAsMap("cpt_codes.json")
 	db, _ := search.New[map[string]any](&search.Config{
 		Storage:         "memory",
 		DefaultLanguage: tokenizer.ENGLISH,
@@ -23,7 +23,7 @@ func TestMap(t *testing.T) {
 	})
 	var startTime = time.Now()
 	before := lib.Stats()
-	db.InsertWithPool(icds, 1, 1)
+	db.InsertWithPool(icds, 3, 100)
 	after := lib.Stats()
 	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	fmt.Println("Total Documents", db.DocumentLen())

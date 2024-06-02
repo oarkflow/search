@@ -424,6 +424,9 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 			return db.prepareResult(db.getDocuments(scores), params)
 		}
 	}
+	if params.BoolMode == "" {
+		params.BoolMode = AND
+	}
 	if params.Query == "" && len(params.Extra) > 0 {
 		for key, val := range params.Extra {
 			params.Query = fmt.Sprintf("%v", val)

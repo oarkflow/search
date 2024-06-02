@@ -1,37 +1,18 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"runtime"
 	"time"
 
 	"github.com/oarkflow/search"
+	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/tokenizer"
 )
 
 func main() {
-	testMap()
-}
-
-func readFileAsMap(file string) (icds []map[string]any) {
-	jsonData, err := os.ReadFile(file)
-	if err != nil {
-		panic("failed to read json file, error: " + err.Error())
-		return
-	}
-
-	if err := json.Unmarshal(jsonData, &icds); err != nil {
-		fmt.Printf("failed to unmarshal json file, error: %v", err)
-		return
-	}
-	return
-}
-
-func testMap() {
-	icds := readFileAsMap("icd10_codes.json")
+	icds := lib.ReadFileAsMap("icd10_codes.json")
 	db, _ := search.New[map[string]any](&search.Config{
+		Storage:         "memory",
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
 			EnableStemming:  true,
@@ -40,25 +21,19 @@ func testMap() {
 		IndexKeys: search.DocFields(icds[0]),
 	})
 	var startTime = time.Now()
-	before := stats()
+	before := lib.Stats()
 	db.InsertWithPool(icds, 3, 100)
-	after := stats()
+	after := lib.Stats()
 	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	fmt.Println("Total Documents", db.DocumentLen())
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()
 	s, err := db.Search(&search.Params{
-		Query: "presence",
+		Query: "presence of right",
 	})
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println("Searching took", time.Since(startTime))
-	fmt.Println(len(s.Hits))
-}
-
-func stats() uint64 {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	return m.Alloc / (1024 * 1024)
+	fmt.Println(s.Hits)
 }

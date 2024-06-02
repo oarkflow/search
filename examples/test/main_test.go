@@ -1,19 +1,17 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"runtime"
 	"testing"
 	"time"
 
 	"github.com/oarkflow/search"
+	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/tokenizer"
 )
 
 func TestMap(t *testing.T) {
-	icds := readFileAsMap("icd10_codes.json")
+	icds := lib.ReadFileAsMap("icd10_codes.json")
 	db, _ := search.New[map[string]any](&search.Config{
 		Storage:         "memory",
 		DefaultLanguage: tokenizer.ENGLISH,
@@ -24,9 +22,9 @@ func TestMap(t *testing.T) {
 		IndexKeys: search.DocFields(icds[0]),
 	})
 	var startTime = time.Now()
-	before := stats()
+	before := lib.Stats()
 	db.InsertWithPool(icds, 1, 1)
-	after := stats()
+	after := lib.Stats()
 	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	fmt.Println("Total Documents", db.DocumentLen())
 	fmt.Println("Indexing took", time.Since(startTime))
@@ -39,24 +37,4 @@ func TestMap(t *testing.T) {
 	}
 	fmt.Println("Searching took", time.Since(startTime))
 	fmt.Println(len(s.Hits))
-}
-
-func readFileAsMap(file string) (icds []map[string]any) {
-	jsonData, err := os.ReadFile(file)
-	if err != nil {
-		panic("failed to read json file, error: " + err.Error())
-		return
-	}
-
-	if err := json.Unmarshal(jsonData, &icds); err != nil {
-		fmt.Printf("failed to unmarshal json file, error: %v", err)
-		return
-	}
-	return
-}
-
-func stats() uint64 {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	return m.Alloc / (1024 * 1024)
 }

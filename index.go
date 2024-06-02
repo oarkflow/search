@@ -37,7 +37,6 @@ func NewIndex() *Index {
 
 func (idx *Index) Insert(params *IndexParams) {
 	totalTokens := len(params.Tokens)
-
 	for token, count := range params.Tokens {
 		tokenFrequency := float64(count) / float64(totalTokens)
 		insertParams := radix.InsertPool.Get()

@@ -10,7 +10,7 @@ import (
 	"github.com/oarkflow/frame/server"
 	"github.com/oarkflow/metadata"
 
-	"github.com/oarkflow/search/filters"
+	"github.com/oarkflow/filters"
 
 	"github.com/oarkflow/search"
 	"github.com/oarkflow/search/tokenizer"

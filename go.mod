@@ -5,7 +5,7 @@ go 1.22.3
 require (
 	github.com/gookit/color v1.5.4
 	github.com/klauspost/compress v1.17.8
-	github.com/oarkflow/filters v0.0.3
+	github.com/oarkflow/filters v0.0.4
 	github.com/oarkflow/flydb v0.0.1
 	github.com/oarkflow/frame v0.0.67
 	github.com/oarkflow/gopool v0.0.1

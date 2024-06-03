@@ -68,8 +68,8 @@ github.com/nyaruka/phonenumbers v1.3.4 h1:bF1Wdh++fxw09s3surhVeBhXEcUKG07pHeP8HQ
 github.com/nyaruka/phonenumbers v1.3.4/go.mod h1:Ut+eFwikULbmCenH6InMKL9csUNLyxHuBLyfkpum11s=
 github.com/oarkflow/errors v0.0.6 h1:qTBzVblrX6bFbqYLfatsrZHMBPchOZiIE3pfVzh1+k8=
 github.com/oarkflow/errors v0.0.6/go.mod h1:UETn0Q55PJ+YUbpR4QImIoBavd6QvJtyW/oeTT7ghZM=
-github.com/oarkflow/filters v0.0.3 h1:mhURmq3Jjn+sOzDucn8L520fRfmiHitBUid6Y9M/6ww=
-github.com/oarkflow/filters v0.0.3/go.mod h1:u8ZB0vNyYWrJ0Iw5UIsy20G3qADPgubddas1UGfCveg=
+github.com/oarkflow/filters v0.0.4 h1:WDU1E643zx+BAyHGYWdWhY9PX+woScGcq70Irugk7f8=
+github.com/oarkflow/filters v0.0.4/go.mod h1:u8ZB0vNyYWrJ0Iw5UIsy20G3qADPgubddas1UGfCveg=
 github.com/oarkflow/flydb v0.0.1 h1:Y1aHcTrXcAjH6qqresjkpLQYwN2+vhJZUciPEmJaf/E=
 github.com/oarkflow/flydb v0.0.1/go.mod h1:45FtOqeKnmJ9dwsMqniuYNCd0oiok2iFGh/8OqFeAEQ=
 github.com/oarkflow/frame v0.0.67 h1:qI0sA36+ba79GluydL/AuHYQthmtD3xyN4uEeOu40/g=

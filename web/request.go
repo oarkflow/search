@@ -1,7 +1,7 @@
 package web
 
 import (
-	"github.com/oarkflow/search/filters"
+	"github.com/oarkflow/filters"
 )
 
 type Query struct {

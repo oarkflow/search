@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// FilterType represents the type of filter operation.
 type FilterType string
 
 const (
@@ -27,7 +26,6 @@ const (
 	ENDS_WITH          FilterType = "ends_with"
 )
 
-// BooleanOperator represents the type of boolean operation.
 type BooleanOperator string
 
 const (
@@ -36,42 +34,35 @@ const (
 	NOT BooleanOperator = "NOT"
 )
 
-// Filter represents a filter condition.
 type Filter struct {
 	Field    string
 	Operator FilterType
 	Value    any
 }
 
-// FilterGroup represents a group of filters with a boolean operator.
 type FilterGroup struct {
 	Operator BooleanOperator
 	Filters  []Filter
 }
 
-// Query represents the top-level query structure.
 type Query struct {
 	Bool BoolQuery `json:"bool"`
 }
 
-// BoolQuery represents a bool query in Elasticsearch.
 type BoolQuery struct {
 	Must    []any `json:"must"`
 	Should  []any `json:"should"`
 	MustNot []any `json:"must_not"`
 }
 
-// TermQuery represents a term query in Elasticsearch.
 type TermQuery struct {
 	Term map[string]any `json:"term"`
 }
 
-// RangeQuery represents a range query in Elasticsearch.
 type RangeQuery struct {
 	Range map[string]map[string]any `json:"range"`
 }
 
-// WildcardQuery represents a wildcard query in Elasticsearch.
 type WildcardQuery struct {
 	Wildcard map[string]string `json:"wildcard"`
 }
@@ -114,15 +105,13 @@ func validateFilters(filters []Filter) error {
 	return nil
 }
 
-// BinaryExpr represents a binary expression tree node.
-type BinaryExpr struct {
+type BinaryExpr[T any] struct {
 	Left     *FilterGroup
 	Operator BooleanOperator
 	Right    *FilterGroup
 }
 
-// ApplyFilterGroups applies filter groups with boolean operators recursively.
-func ApplyFilterGroups(data []map[string]any, expr BinaryExpr) ([]map[string]any, error) {
+func ApplyFilterGroups[T any](data []T, expr BinaryExpr[T]) ([]T, error) {
 	if expr.Left == nil || expr.Right == nil {
 		return nil, errors.New("missing left or right filter group")
 	}
@@ -147,10 +136,9 @@ func ApplyFilterGroups(data []map[string]any, expr BinaryExpr) ([]map[string]any
 	}
 }
 
-// Intersection returns the intersection of two sets of data maps.
-func intersection(a, b []map[string]any) []map[string]any {
+func intersection[T any](a, b []T) []T {
 	set := make(map[string]struct{})
-	var intersection []map[string]any
+	var intersection []T
 
 	for _, item := range a {
 		set[serialize(item)] = struct{}{}
@@ -165,10 +153,9 @@ func intersection(a, b []map[string]any) []map[string]any {
 	return intersection
 }
 
-// Union returns the union of two sets of data maps.
-func union(a, b []map[string]any) []map[string]any {
+func union[T any](a, b []T) []T {
 	set := make(map[string]struct{})
-	var union []map[string]any
+	var union []T
 
 	for _, item := range a {
 		set[serialize(item)] = struct{}{}
@@ -184,17 +171,24 @@ func union(a, b []map[string]any) []map[string]any {
 	return union
 }
 
-// Serialize converts a data map into a string for set operations.
-func serialize(item map[string]any) string {
-	var keys []string
-	for k := range item {
-		keys = append(keys, k)
+func serialize[T any](item T) string {
+	v := reflect.ValueOf(item)
+	if v.Kind() == reflect.Map {
+		keys := v.MapKeys()
+		sort.Slice(keys, func(i, j int) bool {
+			return keys[i].String() < keys[j].String()
+		})
+		var builder strings.Builder
+		for _, k := range keys {
+			builder.WriteString(fmt.Sprintf("%s:%v|", k, v.MapIndex(k)))
+		}
+		return builder.String()
 	}
-	sort.Strings(keys)
 
 	var builder strings.Builder
-	for _, k := range keys {
-		builder.WriteString(fmt.Sprintf("%s:%v|", k, item[k]))
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		builder.WriteString(fmt.Sprintf("%s:%v|", t.Field(i).Name, v.Field(i).Interface()))
 	}
 
 	return builder.String()
@@ -254,8 +248,8 @@ func filtersToQuery(filters []Filter) (Query, error) {
 	}, nil
 }
 
-func applyFilters(data []map[string]any, filterGroups []FilterGroup) ([]map[string]any, error) {
-	var result []map[string]any
+func applyFilters[T any](data []T, filterGroups []FilterGroup) ([]T, error) {
+	var result []T
 	for _, item := range data {
 		matches := true
 		for _, group := range filterGroups {
@@ -272,7 +266,7 @@ func applyFilters(data []map[string]any, filterGroups []FilterGroup) ([]map[stri
 	return result, nil
 }
 
-func matchFilterGroup(item map[string]any, group FilterGroup) bool {
+func matchFilterGroup[T any](item T, group FilterGroup) bool {
 	switch group.Operator {
 	case AND:
 		for _, filter := range group.Filters {
@@ -300,44 +294,65 @@ func matchFilterGroup(item map[string]any, group FilterGroup) bool {
 	}
 }
 
-func matchFilter(item map[string]any, filter Filter) bool {
-	fieldVal, exists := item[filter.Field]
-	if !exists {
+func matchFilter[T any](item T, filter Filter) bool {
+	fieldVal := reflect.ValueOf(item)
+	var fieldValue reflect.Value
+	var val any
+
+	if fieldVal.Kind() == reflect.Map {
+		mapKey := reflect.ValueOf(filter.Field)
+		if !mapKey.IsValid() {
+			return false
+		}
+		fieldValue = fieldVal.MapIndex(mapKey)
+		if !fieldValue.IsValid() {
+			return false
+		}
+		val = fieldValue.Interface()
+	} else {
+		fieldValue = fieldVal.FieldByName(filter.Field)
+		if !fieldValue.IsValid() {
+			return false
+		}
+		val = fieldValue.Interface()
+	}
+
+	if val == nil {
 		return false
 	}
 
 	switch filter.Operator {
 	case EQUAL:
-		return reflect.DeepEqual(fieldVal, filter.Value)
+		return reflect.DeepEqual(val, filter.Value)
 	case LESS_THAN:
-		return compare(fieldVal, filter.Value) < 0
+		return compare(val, filter.Value) < 0
 	case LESS_THAN_EQUAL:
-		return compare(fieldVal, filter.Value) <= 0
+		return compare(val, filter.Value) <= 0
 	case GREATER_THAN:
-		return compare(fieldVal, filter.Value) > 0
+		return compare(val, filter.Value) > 0
 	case GREATER_THAN_EQUAL:
-		return compare(fieldVal, filter.Value) >= 0
+		return compare(val, filter.Value) >= 0
 	case NOT_EQUAL:
-		return !reflect.DeepEqual(fieldVal, filter.Value)
+		return !reflect.DeepEqual(val, filter.Value)
 	case CONTAINS:
-		return strings.Contains(fieldVal.(string), filter.Value.(string))
+		return strings.Contains(val.(string), filter.Value.(string))
 	case NOT_CONTAINS:
-		return !strings.Contains(fieldVal.(string), filter.Value.(string))
+		return !strings.Contains(val.(string), filter.Value.(string))
 	case STARTS_WITH:
-		return strings.HasPrefix(fieldVal.(string), filter.Value.(string))
+		return strings.HasPrefix(val.(string), filter.Value.(string))
 	case ENDS_WITH:
-		return strings.HasSuffix(fieldVal.(string), filter.Value.(string))
+		return strings.HasSuffix(val.(string), filter.Value.(string))
 	case IN:
 		values := filter.Value.([]any)
 		for _, v := range values {
-			if reflect.DeepEqual(fieldVal, v) {
+			if reflect.DeepEqual(val, v) {
 				return true
 			}
 		}
 		return false
 	case BETWEEN:
 		values := filter.Value.([]any)
-		return compare(fieldVal, values[0]) >= 0 && compare(fieldVal, values[1]) <= 0
+		return compare(val, values[0]) >= 0 && compare(val, values[1]) <= 0
 	default:
 		return false
 	}
@@ -400,57 +415,84 @@ func parseTime(value string) (time.Time, error) {
 }
 
 func main() {
-	// Sample data
-	data := []map[string]any{
-		{"age": 25, "city": "New York", "created_at": "2023-01-01 12:00:00", "name": "John Doe"},
-		{"age": 30, "city": "Los Angeles", "created_at": "2022-06-15 15:30:00", "name": "Jane Doe"},
-		{"age": 35, "city": "Chicago", "created_at": "2021-12-25 08:45:00", "name": "Alice Smith"},
-		{"age": 40, "city": "Houston", "created_at": "2022-11-11 20:15:00", "name": "Bob Johnson"},
+	// Sample data (map type)
+	mapData := []map[string]any{
+		{"Age": 25, "City": "New York", "CreatedAt": "2023-01-01 12:00:00", "Name": "John Doe"},
+		{"Age": 30, "City": "Los Angeles", "CreatedAt": "2022-06-15 15:30:00", "Name": "Jane Doe"},
+		{"Age": 35, "City": "Chicago", "CreatedAt": "2021-12-25 08:45:00", "Name": "Alice Smith"},
+		{"Age": 40, "City": "Houston", "CreatedAt": "2022-11-11 20:15:00", "Name": "Bob Johnson"},
+	}
+	group2 := FilterGroup{
+		Operator: AND,
+		Filters: []Filter{
+			{Field: "CreatedAt", Operator: BETWEEN, Value: []any{"2022-06-01", "2023-01-01"}},
+			{Field: "Name", Operator: STARTS_WITH, Value: "Jane"},
+		},
+	}
+
+	// Apply filters to map data
+	filteredMapData, err := applyFilters(mapData, []FilterGroup{group2})
+	if err != nil {
+		fmt.Println("Error applying filters:", err)
+	}
+
+	// Print filtered map data
+	fmt.Println("Filtered Map Data")
+	for _, item := range filteredMapData {
+		fmt.Println(item)
+	}
+
+	// Sample data (struct type)
+	type Person struct {
+		Age       int
+		City      string
+		CreatedAt string
+		Name      string
+	}
+
+	structData := []Person{
+		{Age: 25, City: "New York", CreatedAt: "2023-01-01 12:00:00", Name: "John Doe"},
+		{Age: 30, City: "Los Angeles", CreatedAt: "2022-06-15 15:30:00", Name: "Jane Doe"},
+		{Age: 35, City: "Chicago", CreatedAt: "2021-12-25 08:45:00", Name: "Alice Smith"},
+		{Age: 40, City: "Houston", CreatedAt: "2022-11-11 20:15:00", Name: "Bob Johnson"},
+	}
+
+	// Apply filters to struct data
+	filteredStructData, err := applyFilters(structData, []FilterGroup{group2})
+	if err != nil {
+		fmt.Println("Error applying filters:", err)
+		return
+	}
+
+	fmt.Println("Filtered Struct Data")
+	// Print filtered struct data
+	for _, item := range filteredStructData {
+		fmt.Println(item)
 	}
 
 	group1 := FilterGroup{
 		Operator: AND,
 		Filters: []Filter{
-			{Field: "age", Operator: GREATER_THAN, Value: 27},
-			{Field: "city", Operator: CONTAINS, Value: "Hous"},
+			{Field: "Age", Operator: GREATER_THAN, Value: 27},
+			{Field: "City", Operator: CONTAINS, Value: "Hous"},
 		},
 	}
-	group2 := FilterGroup{
-		Operator: OR,
-		Filters: []Filter{
-			{Field: "created_at", Operator: BETWEEN, Value: []any{"2022-01-01", "2023-01-01"}},
-			{Field: "name", Operator: STARTS_WITH, Value: "Jane"},
-		},
-	}
-
-	// Apply filters to data
-	filteredData, err := applyFilters(data, []FilterGroup{group1, group2})
-	if err != nil {
-		fmt.Println("Error applying filters:", err)
-		return
-	}
-
-	// Print filtered data
-	for _, item := range filteredData {
-		fmt.Println(item)
-	}
-
 	// Create a binary expression
-	binaryExpr := BinaryExpr{
+	binaryExpr := BinaryExpr[map[string]any]{
 		Left:     &group1,
 		Operator: AND,
 		Right:    &group2,
 	}
 
-	// Apply filters to data using binary expression
-	filteredData, err = ApplyFilterGroups(data, binaryExpr)
+	// Apply filters to map data using binary expression
+	filteredMapData, err = ApplyFilterGroups(mapData, binaryExpr)
 	if err != nil {
 		fmt.Println("Error applying filters:", err)
 		return
 	}
 
-	// Print filtered data
-	for _, item := range filteredData {
+	// Print filtered map data
+	for _, item := range filteredMapData {
 		fmt.Println(item)
 	}
 }

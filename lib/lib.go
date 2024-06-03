@@ -201,8 +201,14 @@ const (
 )
 
 // ToLower is the equivalent of strings.ToLower
-func ToLower(s string) string {
-	return FromByte(ToLowerBytes(ToByte(s)))
+func ToLower(b string) string {
+	res := make([]byte, len(b))
+	copy(res, b)
+	for i := 0; i < len(res); i++ {
+		res[i] = toLowerTable[res[i]]
+	}
+
+	return FromByte(res)
 }
 
 // ToUpper is the equivalent of strings.ToUpper

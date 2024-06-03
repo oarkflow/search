@@ -5,6 +5,7 @@ go 1.22.3
 require (
 	github.com/gookit/color v1.5.4
 	github.com/klauspost/compress v1.17.8
+	github.com/oarkflow/filters v0.0.3
 	github.com/oarkflow/flydb v0.0.1
 	github.com/oarkflow/frame v0.0.67
 	github.com/oarkflow/gopool v0.0.1
@@ -40,6 +41,7 @@ require (
 	github.com/oarkflow/log v1.0.74 // indirect
 	github.com/oarkflow/pkg v0.1.38 // indirect
 	github.com/oarkflow/protocol v0.0.15 // indirect
+	github.com/relvacode/iso8601 v1.4.0 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

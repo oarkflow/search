@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/oarkflow/filters"
 	"github.com/oarkflow/gopool"
 	"github.com/oarkflow/gopool/spinlock"
 	"github.com/oarkflow/xid"
@@ -62,7 +63,7 @@ type DeleteParams[Schema SchemaProps] struct {
 }
 
 type Params struct {
-	Extra      map[string]any     `json:"extra"`
+	Filters    []filters.Filter   `json:"filters"`
 	Query      string             `json:"query"`
 	Properties []string           `json:"properties"`
 	BoolMode   Mode               `json:"boolMode"`
@@ -372,32 +373,8 @@ func (db *Engine[Schema]) ClearCache() {
 }
 
 // Check function checks if a key-value map exists in any type of data
-func (db *Engine[Schema]) Check(data Schema, filter map[string]any) bool {
-	switch reflect.TypeOf(data).Kind() {
-	case reflect.Map:
-		dataMap := reflect.ValueOf(data)
-		for key, value := range filter {
-			keyValue := reflect.ValueOf(key)
-			dataValue := dataMap.MapIndex(keyValue)
-			if !dataValue.IsValid() || !lib.IsEqual(dataValue.Interface(), value) {
-				return false
-			}
-		}
-		return true
-
-	case reflect.Struct:
-		dataValue := reflect.ValueOf(data)
-		for key, value := range filter {
-			fieldValue := dataValue.FieldByName(key)
-			if !dataValue.IsValid() || !lib.IsEqual(fieldValue.Interface(), value) {
-				return false
-			}
-		}
-		return true
-
-	default:
-		return false
-	}
+func (db *Engine[Schema]) Check(data Schema, filter []filters.Filter) bool {
+	return filters.MatchGroup(data, filters.FilterGroup{Operator: filters.AND, Filters: filter})
 }
 
 func (db *Engine[Schema]) Sample(size ...int) (Result[Schema], error) {
@@ -427,15 +404,19 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	if params.BoolMode == "" {
 		params.BoolMode = AND
 	}
-	if params.Query == "" && len(params.Extra) > 0 {
-		for key, val := range params.Extra {
-			params.Query = fmt.Sprintf("%v", val)
-			params.Properties = append(params.Properties, key)
-			delete(params.Extra, key)
-			break
+	var extra []filters.Filter
+	for _, filter := range params.Filters {
+		if filter.Field == "q" {
+			if params.Query == "" {
+				params.Query = fmt.Sprintf("%v", filter.Value)
+				params.Properties = append(params.Properties, filter.Field)
+			}
+		} else {
+			extra = append(extra, filter)
 		}
 	}
-	if params.Query == "" && len(params.Extra) == 0 {
+	params.Filters = extra
+	if params.Query == "" && len(params.Filters) == 0 {
 		return db.Sample(params.Limit)
 	}
 	allIdScores, err := db.findWithParams(params)
@@ -456,12 +437,12 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 		if !ok {
 			continue
 		}
-		if len(params.Extra) == 0 {
+		if len(params.Filters) == 0 {
 			cache[id] = score
 			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
 			continue
 		}
-		if db.Check(doc, params.Extra) {
+		if db.Check(doc, params.Filters) {
 			cache[id] = score
 			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
 		}

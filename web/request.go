@@ -14,6 +14,7 @@ type Query struct {
 
 type NewEngine struct {
 	Key             string   `json:"key"`
+	Storage         string   `json:"storage"`
 	FieldsToIndex   []string `json:"fields_to_index"`
 	FieldsToStore   []string `json:"fields_to_store"`
 	FieldsToExclude []string `json:"fields_to_exclude"`

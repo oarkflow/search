@@ -420,8 +420,10 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	}
 	cachedKey := params.ToInt64()
 	if cachedKey != 0 {
-		if scores, ok := db.cache.Get(cachedKey); ok {
-			return db.prepareResult(db.getDocuments(scores), params)
+		if scores, ok := db.cache.Get(cachedKey); ok && scores != nil {
+			if len(scores) > 0 {
+				return db.prepareResult(db.getDocuments(scores), params)
+			}
 		}
 	}
 	if params.BoolMode == "" {
@@ -466,7 +468,7 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
 		}
 	}
-	if cachedKey != 0 {
+	if cachedKey != 0 && len(cache) > 0 {
 		db.cache.Set(cachedKey, cache)
 	}
 	return db.prepareResult(results, params)

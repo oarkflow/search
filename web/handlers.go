@@ -78,6 +78,7 @@ func (f *FulltextController) NewEngine(_ context.Context, ctx *frame.Context) {
 	}
 	cfg := search.GetConfig(req.Key)
 	cfg.IndexKeys = req.FieldsToIndex
+	cfg.Storage = req.Storage
 	cfg.FieldsToStore = req.FieldsToStore
 	cfg.FieldsToExclude = req.FieldsToExclude
 	cfg.Compress = req.Compress

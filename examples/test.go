@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 )
 
 // FilterType represents the type of filter operation.
@@ -149,7 +150,7 @@ func filtersToQuery(filters []Filter) (Query, error) {
 	}, nil
 }
 
-func applyFilters(filters []Filter, data []map[string]any) ([]map[string]any, error) {
+func applyFilters(data []map[string]any, filters []Filter) ([]map[string]any, error) {
 	if err := validateFilters(filters); err != nil {
 		return nil, err
 	}
@@ -176,6 +177,7 @@ func matchFilter(item map[string]any, filter Filter) bool {
 	if !exists {
 		return false
 	}
+
 	switch filter.Operator {
 	case EQUAL:
 		return reflect.DeepEqual(fieldVal, filter.Value)
@@ -230,9 +232,43 @@ func compare(a, b any) int {
 		as := a.(string)
 		bs := b.(string)
 		return strings.Compare(as, bs)
+	case time.Time:
+		at, err := parseTime(a.(string))
+		if err != nil {
+			return 0
+		}
+		bt, err := parseTime(b.(string))
+		if err != nil {
+			return 0
+		}
+		switch {
+		case at.Before(bt):
+			return -1
+		case at.After(bt):
+			return 1
+		default:
+			return 0
+		}
 	default:
 		return 0
 	}
+}
+
+func parseTime(value string) (time.Time, error) {
+	formats := []string{
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+	var t time.Time
+	var err error
+	for _, format := range formats {
+		t, err = time.Parse(format, value)
+		if err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, err
 }
 
 func main() {
@@ -251,7 +287,7 @@ func main() {
 	}
 
 	// Apply filters to data
-	filteredData, err := applyFilters(filters, data)
+	filteredData, err := applyFilters(data, filters)
 	if err != nil {
 		fmt.Println("Error applying filters:", err)
 		return
@@ -261,4 +297,26 @@ func main() {
 	for _, item := range filteredData {
 		fmt.Println(item)
 	}
+	// Sample data
+	data = []map[string]any{
+		{"age": 25, "city": "New York", "created_at": "2023-01-01 12:00:00", "name": "John Doe"},
+		{"age": 30, "city": "Los Angeles", "created_at": "2022-06-15 15:30:00", "name": "Jane Doe"},
+		{"age": 35, "city": "Chicago", "created_at": "2021-12-25 08:45:00", "name": "Alice Smith"},
+		{"age": 40, "city": "Houston", "created_at": "2022-11-11 20:15:00", "name": "Bob Johnson"},
+	}
+
+	// Example filters
+	filters = []Filter{
+		{Field: "age", Operator: GREATER_THAN, Value: 27},
+		{Field: "city", Operator: CONTAINS, Value: "Hous"},
+		{Field: "created_at", Operator: BETWEEN, Value: []any{"2022-01-01", "2023-01-01"}},
+	}
+
+	filteredData, err = applyFilters(data, filters)
+	if err != nil {
+		fmt.Println("Error applying filters:", err)
+		return
+	}
+
+	fmt.Println("Filtered Data:", filteredData)
 }

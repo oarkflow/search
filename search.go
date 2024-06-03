@@ -12,10 +12,11 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/oarkflow/filters"
 	"github.com/oarkflow/gopool"
 	"github.com/oarkflow/gopool/spinlock"
 	"github.com/oarkflow/xid"
+
+	"github.com/oarkflow/search/filters"
 
 	"github.com/oarkflow/maps"
 

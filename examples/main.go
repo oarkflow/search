@@ -4,15 +4,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/oarkflow/filters"
-
 	"github.com/oarkflow/search"
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/tokenizer"
 )
 
 func main() {
-	icds := lib.ReadFileAsMap("cpt_codes.json")
+	icds := lib.ReadFileAsMap("sample.json")
 	db, _ := search.New[map[string]any](&search.Config{
 		Storage:         "memory",
 		DefaultLanguage: tokenizer.ENGLISH,
@@ -31,14 +29,7 @@ func main() {
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()
 	s, err := db.Search(&search.Params{
-		Query: "Amput",
-		Filters: []filters.Filter{
-			{
-				Field:    "effective_date",
-				Operator: filters.Between,
-				Value:    []string{"2015-01-01", "2015-05-01"},
-			},
-		},
+		Query: "1123F",
 	})
 	if err != nil {
 		panic(err)

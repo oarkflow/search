@@ -19,7 +19,8 @@ func defaultCheck(dataVal, val any) bool {
 }
 
 func ToString(value interface{}) string {
-	switch v := value.(type) {
+	return fmt.Sprint(value)
+	/*switch v := value.(type) {
 	case string:
 		return v
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
@@ -37,7 +38,7 @@ func ToString(value interface{}) string {
 		return "nil"
 	default:
 		return reflect.TypeOf(value).String()
-	}
+	}*/
 }
 
 func IsEqual(dataVal, val any) bool {

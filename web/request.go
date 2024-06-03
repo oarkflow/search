@@ -34,6 +34,7 @@ type Database struct {
 	IndexKey        string   `json:"index_key"`
 	Password        string   `json:"password"`
 	Host            string   `json:"host"`
+	Storage         string   `json:"storage"`
 	SslMode         string   `json:"ssl_mode"`
 	Username        string   `json:"username"`
 	FieldsToIndex   []string `json:"fields_to_index"`

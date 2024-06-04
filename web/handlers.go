@@ -67,7 +67,7 @@ func (f *FulltextController) Index(_ context.Context, ctx *frame.Context) {
 }
 
 func (f *FulltextController) NewEngine(_ context.Context, ctx *frame.Context) {
-	var req NewEngine
+	var req FTSEngine
 	err := ctx.Bind(&req)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)

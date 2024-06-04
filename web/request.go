@@ -16,13 +16,12 @@ type Query struct {
 	Exact     bool             `json:"e" query:"e"`
 }
 
-type NewEngine struct {
+type FTSEngine struct {
 	Key             string   `json:"key"`
 	Storage         string   `json:"storage"`
 	FieldsToIndex   []string `json:"fields_to_index"`
 	FieldsToStore   []string `json:"fields_to_store"`
 	FieldsToExclude []string `json:"fields_to_exclude"`
-	Storage         string   `json:"storage"`
 	Reset           bool     `json:"reset"`
 	Compress        bool     `json:"compress"`
 }

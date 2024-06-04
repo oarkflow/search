@@ -391,6 +391,52 @@ func (db *Engine[Schema]) Sample(size ...int) (Result[Schema], error) {
 	return db.prepareResult(results, &Params{Paginate: false})
 }
 
+func ProcessQueryAndFilters(params *Params) {
+	var extraFilters []filters.Filter
+	if params.Query != "" {
+		for _, filter := range params.Filters {
+			if filter.Field != "q" {
+				extraFilters = append(extraFilters, filter)
+			}
+		}
+		params.Filters = extraFilters
+		return
+	}
+	foundQ := false
+	for _, filter := range params.Filters {
+		if filter.Field == "q" {
+			params.Query = fmt.Sprintf("%v", filter.Value)
+			params.Properties = append(params.Properties, filter.Field)
+			foundQ = true
+		} else {
+			extraFilters = append(extraFilters, filter)
+		}
+	}
+
+	if !foundQ {
+		for _, filter := range extraFilters {
+			if filter.Operator == filters.Equal {
+				params.Query = fmt.Sprintf("%v", filter.Value)
+				params.Properties = append(params.Properties, filter.Field)
+				extraFilters = removeFilter(extraFilters, filter)
+				break
+			}
+		}
+	}
+
+	// Update the filters in params
+	params.Filters = extraFilters
+}
+
+func removeFilter(filters []filters.Filter, filterToRemove filters.Filter) []filters.Filter {
+	for i, filter := range filters {
+		if filter == filterToRemove {
+			return append(filters[:i], filters[i+1:]...)
+		}
+	}
+	return filters
+}
+
 // Search - uses params to search
 func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	if db.cache == nil {
@@ -398,25 +444,16 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	}
 	cachedKey := params.ToInt64()
 	if cachedKey != 0 {
-		if scores, ok := db.cache.Get(cachedKey); ok {
-			return db.prepareResult(db.getDocuments(scores), params)
+		if scores, ok := db.cache.Get(cachedKey); ok && scores != nil {
+			if len(scores) > 0 {
+				return db.prepareResult(db.getDocuments(scores), params)
+			}
 		}
 	}
 	if params.BoolMode == "" {
 		params.BoolMode = AND
 	}
-	var extra []filters.Filter
-	for _, filter := range params.Filters {
-		if filter.Field == "q" {
-			if params.Query == "" {
-				params.Query = fmt.Sprintf("%v", filter.Value)
-				params.Properties = append(params.Properties, filter.Field)
-			}
-		} else {
-			extra = append(extra, filter)
-		}
-	}
-	params.Filters = extra
+	ProcessQueryAndFilters(params)
 	if params.Query == "" && len(params.Filters) == 0 {
 		return db.Sample(params.Limit)
 	}
@@ -448,7 +485,7 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
 		}
 	}
-	if cachedKey != 0 {
+	if cachedKey != 0 && len(cache) > 0 {
 		db.cache.Set(cachedKey, cache)
 	}
 	return db.prepareResult(results, params)

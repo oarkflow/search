@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/oarkflow/filters"
+
 	"github.com/oarkflow/search"
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/tokenizer"
@@ -29,7 +31,13 @@ func main() {
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()
 	s, err := db.Search(&search.Params{
-		Query: "1123F",
+		Filters: []filters.Filter{
+			{
+				Field:    "work_item_id",
+				Operator: filters.Equal,
+				Value:    "55",
+			},
+		},
 	})
 	if err != nil {
 		panic(err)

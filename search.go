@@ -16,6 +16,8 @@ import (
 	"github.com/oarkflow/gopool/spinlock"
 	"github.com/oarkflow/xid"
 
+	"github.com/oarkflow/filters"
+
 	"github.com/oarkflow/maps"
 
 	"github.com/oarkflow/search/lib"
@@ -62,7 +64,7 @@ type DeleteParams[Schema SchemaProps] struct {
 }
 
 type Params struct {
-	Extra      map[string]any     `json:"extra"`
+	Filters    []filters.Filter   `json:"filters"`
 	Query      string             `json:"query"`
 	Properties []string           `json:"properties"`
 	BoolMode   Mode               `json:"boolMode"`
@@ -372,32 +374,8 @@ func (db *Engine[Schema]) ClearCache() {
 }
 
 // Check function checks if a key-value map exists in any type of data
-func (db *Engine[Schema]) Check(data Schema, filter map[string]any) bool {
-	switch reflect.TypeOf(data).Kind() {
-	case reflect.Map:
-		dataMap := reflect.ValueOf(data)
-		for key, value := range filter {
-			keyValue := reflect.ValueOf(key)
-			dataValue := dataMap.MapIndex(keyValue)
-			if !dataValue.IsValid() || !lib.IsEqual(dataValue.Interface(), value) {
-				return false
-			}
-		}
-		return true
-
-	case reflect.Struct:
-		dataValue := reflect.ValueOf(data)
-		for key, value := range filter {
-			fieldValue := dataValue.FieldByName(key)
-			if !dataValue.IsValid() || !lib.IsEqual(fieldValue.Interface(), value) {
-				return false
-			}
-		}
-		return true
-
-	default:
-		return false
-	}
+func (db *Engine[Schema]) Check(data Schema, filter []filters.Filter) bool {
+	return filters.MatchGroup(data, filters.FilterGroup{Operator: filters.AND, Filters: filter})
 }
 
 func (db *Engine[Schema]) Sample(size ...int) (Result[Schema], error) {
@@ -411,6 +389,52 @@ func (db *Engine[Schema]) Sample(size ...int) (Result[Schema], error) {
 		results = append(results, Hit[Schema]{Id: parseInt, Data: doc, Score: 0})
 	}
 	return db.prepareResult(results, &Params{Paginate: false})
+}
+
+func ProcessQueryAndFilters(params *Params) {
+	var extraFilters []filters.Filter
+	if params.Query != "" {
+		for _, filter := range params.Filters {
+			if filter.Field != "q" {
+				extraFilters = append(extraFilters, filter)
+			}
+		}
+		params.Filters = extraFilters
+		return
+	}
+	foundQ := false
+	for _, filter := range params.Filters {
+		if filter.Field == "q" {
+			params.Query = fmt.Sprintf("%v", filter.Value)
+			params.Properties = append(params.Properties, filter.Field)
+			foundQ = true
+		} else {
+			extraFilters = append(extraFilters, filter)
+		}
+	}
+
+	if !foundQ {
+		for _, filter := range extraFilters {
+			if filter.Operator == filters.Equal {
+				params.Query = fmt.Sprintf("%v", filter.Value)
+				params.Properties = append(params.Properties, filter.Field)
+				extraFilters = removeFilter(extraFilters, filter)
+				break
+			}
+		}
+	}
+
+	// Update the filters in params
+	params.Filters = extraFilters
+}
+
+func removeFilter(filters []filters.Filter, filterToRemove filters.Filter) []filters.Filter {
+	for i, filter := range filters {
+		if filter == filterToRemove {
+			return append(filters[:i], filters[i+1:]...)
+		}
+	}
+	return filters
 }
 
 // Search - uses params to search
@@ -429,15 +453,8 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	if params.BoolMode == "" {
 		params.BoolMode = AND
 	}
-	if params.Query == "" && len(params.Extra) > 0 {
-		for key, val := range params.Extra {
-			params.Query = fmt.Sprintf("%v", val)
-			params.Properties = append(params.Properties, key)
-			delete(params.Extra, key)
-			break
-		}
-	}
-	if params.Query == "" && len(params.Extra) == 0 {
+	ProcessQueryAndFilters(params)
+	if params.Query == "" && len(params.Filters) == 0 {
 		return db.Sample(params.Limit)
 	}
 	allIdScores, err := db.findWithParams(params)
@@ -458,12 +475,12 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 		if !ok {
 			continue
 		}
-		if len(params.Extra) == 0 {
+		if len(params.Filters) == 0 {
 			cache[id] = score
 			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
 			continue
 		}
-		if db.Check(doc, params.Extra) {
+		if db.Check(doc, params.Filters) {
 			cache[id] = score
 			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
 		}

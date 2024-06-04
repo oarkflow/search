@@ -3,13 +3,14 @@ package web
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/oarkflow/frame/pkg/protocol/consts"
 	"github.com/oarkflow/frame/server"
 	"github.com/oarkflow/metadata"
+
+	"github.com/oarkflow/filters"
 
 	"github.com/oarkflow/search"
 	"github.com/oarkflow/search/tokenizer"
@@ -77,6 +78,7 @@ func (f *FulltextController) NewEngine(_ context.Context, ctx *frame.Context) {
 		return
 	}
 	cfg := search.GetConfig(req.Key)
+	cfg.Storage = req.Storage
 	cfg.IndexKeys = req.FieldsToIndex
 	cfg.Storage = req.Storage
 	cfg.FieldsToStore = req.FieldsToStore
@@ -123,35 +125,30 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	var extra map[string]any
+	var extra []filters.Filter
 	err = ctx.Bind(&extra)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	if len(extra) == 0 {
+		extra, err = filters.ParseQuery(ctx.QueryArgs().String())
+		if err != nil {
+			Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+			return
+		}
+	}
+
 	keyType := ctx.Param("type")
 	engine, err := search.GetEngine[map[string]any](keyType)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	if extra != nil && query.Extra == nil {
-		query.Extra = extra
+	if extra != nil && query.Filters == nil {
+		query.Filters = extra
 	}
-	for key, val := range query.Extra {
-		if slices.Contains([]string{"q", "s", "o", "m", "f", "e", "t"}, key) {
-			delete(query.Extra, key)
-		} else {
-			switch val := val.(type) {
-			case []any:
-				if len(val) > 0 {
-					query.Extra[key] = val[0]
-				} else {
-					delete(query.Extra, key)
-				}
-			}
-		}
-	}
+
 	if strings.ToLower(query.Match) == "any" {
 		query.Match = "OR"
 	} else {
@@ -165,10 +162,8 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		BoolMode:   search.Mode(query.Match),
 		Properties: query.Fields,
 		Exact:      query.Exact,
-		Tolerance:  query.Tolerance,
-		Extra:      query.Extra,
+		Filters:    query.Filters,
 	}
-
 	if query.Size > 0 {
 		params.Paginate = true
 	}

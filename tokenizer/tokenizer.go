@@ -11,6 +11,7 @@ import (
 
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/stemmer"
+	"github.com/oarkflow/search/tokenizer/stopwords"
 )
 
 const (
@@ -88,7 +89,7 @@ func Tokenize(params TokenizeParams, config Config, tokens map[string]int) error
 func normalizeToken(params normalizeParams, config Config) string {
 	token := params.token
 	if config.EnableStopWords {
-		if _, ok := stopWords[params.language][token]; ok {
+		if _, ok := stopwords.English[token]; ok {
 			return ""
 		}
 	}

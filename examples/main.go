@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	icds := lib.ReadFileAsMap("sample.json")
+	icds := lib.ReadFileAsMap("icd10_codes.json")
 	db, _ := search.New[map[string]any](&search.Config{
 		Storage:         "memory",
 		DefaultLanguage: tokenizer.ENGLISH,

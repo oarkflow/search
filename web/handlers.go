@@ -132,13 +132,13 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		return
 	}
 	if len(extra) == 0 {
-		extra, err = filters.ParseQuery(ctx.QueryArgs().String())
+		builtInFields := []string{"q", "m", "l", "f", "t", "o", "s", "e"}
+		extra, err = filters.ParseQuery(ctx.QueryArgs().String(), builtInFields...)
 		if err != nil {
 			Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 			return
 		}
 	}
-
 	keyType := ctx.Param("type")
 	engine, err := search.GetEngine[map[string]any](keyType)
 	if err != nil {
@@ -167,6 +167,7 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 	if query.Size > 0 {
 		params.Paginate = true
 	}
+	fmt.Println(params.Query, params.Filters)
 	var records []map[string]any
 	result, err := engine.Search(params)
 	if err != nil {

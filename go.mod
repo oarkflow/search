@@ -5,7 +5,7 @@ go 1.22.3
 require (
 	github.com/gookit/color v1.5.4
 	github.com/klauspost/compress v1.17.9
-	github.com/oarkflow/filters v0.0.5
+	github.com/oarkflow/filters v0.0.7
 	github.com/oarkflow/flydb v0.0.1
 	github.com/oarkflow/frame v0.0.68
 	github.com/oarkflow/gopool v0.0.1
@@ -33,7 +33,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
-	github.com/lib/pq v1.10.9 // indirect
 	github.com/microsoft/go-mssqldb v1.7.2 // indirect
 	github.com/nyaruka/phonenumbers v1.3.6 // indirect
 	github.com/oarkflow/errors v0.0.6 // indirect

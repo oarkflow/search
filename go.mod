@@ -9,9 +9,10 @@ require (
 	github.com/oarkflow/flydb v0.0.1
 	github.com/oarkflow/frame v0.0.68
 	github.com/oarkflow/gopool v0.0.1
+	github.com/oarkflow/log v1.0.79
 	github.com/oarkflow/maps v0.0.0-20240406152114-fc5a94538f01
-	github.com/oarkflow/metadata v0.0.61
-	github.com/oarkflow/squealx v0.0.17
+	github.com/oarkflow/metadata v0.0.64
+	github.com/oarkflow/squealx v0.0.19
 	github.com/oarkflow/xid v1.2.5
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8
@@ -36,8 +37,7 @@ require (
 	github.com/microsoft/go-mssqldb v1.7.2 // indirect
 	github.com/nyaruka/phonenumbers v1.3.6 // indirect
 	github.com/oarkflow/errors v0.0.6 // indirect
-	github.com/oarkflow/json v0.0.5 // indirect
-	github.com/oarkflow/log v1.0.79 // indirect
+	github.com/oarkflow/json v0.0.6 // indirect
 	github.com/oarkflow/pkg v0.1.47 // indirect
 	github.com/oarkflow/protocol v0.0.16 // indirect
 	github.com/oarkflow/render v0.0.1 // indirect

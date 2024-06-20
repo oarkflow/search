@@ -8,8 +8,12 @@ import (
 	"time"
 
 	"github.com/gookit/color"
+	"github.com/oarkflow/gopool"
+	"github.com/oarkflow/gopool/spinlock"
+	"github.com/oarkflow/log"
 	"github.com/oarkflow/metadata"
 	"github.com/oarkflow/squealx"
+	"github.com/oarkflow/squealx/dbresolver"
 
 	"github.com/oarkflow/search"
 )
@@ -32,6 +36,39 @@ func IndexFromDB(db metadata.DataSource, dbConfig Database, start time.Time) err
 	if err != nil {
 		return err
 	}
+	sqDB := db.Client()
+	switch d := sqDB.(type) {
+	case dbresolver.DBResolver:
+		sqDB, _ := d.UseDefault()
+		start := time.Now()
+		totalCount := 0
+		var errs []error
+		noOfWorker := runtime.NumCPU() - 1
+		if noOfWorker == 0 {
+			noOfWorker = 1
+		}
+		pool := gopool.NewGoPool(noOfWorker,
+			gopool.WithTaskQueueSize(dbConfig.BatchSize),
+			gopool.WithLock(new(spinlock.SpinLock)),
+			gopool.WithErrorCallback(func(err error) {
+				errs = append(errs, err)
+			}),
+		)
+		defer pool.Release()
+		err := squealx.SelectEach(sqDB, func(doc map[string]any) error {
+			pool.AddTask(func() (interface{}, error) {
+				return searchEngine.Insert(doc)
+			})
+			totalCount++
+			return nil
+		}, query)
+		if err != nil {
+			return err
+		}
+		pool.Wait()
+		log.Info().Str("latency", fmt.Sprintf("%s", time.Since(start))).Int("total_documents", totalCount).Msg("Indexed documents...")
+	}
+
 	fromDB, err := db.GetRawCollection(query)
 	if err != nil {
 		return err

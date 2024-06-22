@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oarkflow/frame/middlewares/server/cors"
 	"github.com/oarkflow/frame/pkg/protocol/consts"
 	"github.com/oarkflow/frame/server"
 	"github.com/oarkflow/metadata"
@@ -64,6 +65,33 @@ func (f *FulltextController) Index(_ context.Context, ctx *frame.Context) {
 		return
 	}
 	Success(ctx, consts.StatusOK, record)
+}
+
+func (f *FulltextController) Metadata(_ context.Context, ctx *frame.Context) {
+	keyType := ctx.Param("type")
+	engine, err := search.GetEngine[map[string]any](keyType)
+	if err != nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	metadata := engine.Metadata()
+	metadata["key"] = keyType
+	Success(ctx, consts.StatusOK, metadata)
+}
+
+func (f *FulltextController) ClearCache(_ context.Context, ctx *frame.Context) {
+	keyType := ctx.Param("type")
+	engine, err := search.GetEngine[map[string]any](keyType)
+	if err != nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	engine.ClearCache()
+	Success(ctx, consts.StatusOK, nil, "Cache cleared...")
+}
+
+func (f *FulltextController) IndexTypes(_ context.Context, ctx *frame.Context) {
+	Success(ctx, consts.StatusOK, search.AvailableEngines[map[string]any]())
 }
 
 func (f *FulltextController) NewEngine(_ context.Context, ctx *frame.Context) {
@@ -125,14 +153,14 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	var extra []filters.Filter
+	var extra []*filters.Filter
 	err = ctx.Bind(&extra)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	if len(extra) == 0 {
-		builtInFields := []string{"q", "m", "l", "f", "t", "o", "s", "e"}
+		builtInFields := []string{"q", "m", "l", "f", "t", "o", "s", "e", "condition"}
 		extra, err = filters.ParseQuery(ctx.QueryArgs().String(), builtInFields...)
 		if err != nil {
 			Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
@@ -158,15 +186,17 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		Query:      query.Query,
 		Limit:      query.Size,
 		Offset:     query.Offset,
+		Condition:  query.Condition,
 		Language:   tokenizer.Language(query.Language),
 		BoolMode:   search.Mode(query.Match),
 		Properties: query.Fields,
 		Exact:      query.Exact,
 		Filters:    query.Filters,
 	}
-	if query.Size > 0 {
-		params.Paginate = true
+	if params.Limit == 0 {
+		params.Limit = 100
 	}
+	params.Paginate = true
 	var records []map[string]any
 	result, err := engine.Search(params)
 	if err != nil {
@@ -190,7 +220,8 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 	}
 	Success(ctx, consts.StatusOK, utils.H{
 		keyType: records,
-		"total": result.Count,
+		"count": result.Count,
+		"total": result.Total,
 	})
 }
 
@@ -201,7 +232,6 @@ func (f *FulltextController) TotalDocuments(_ context.Context, ctx *frame.Contex
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	engine.DocumentLen()
 	Success(ctx, consts.StatusOK, utils.H{
 		"count": engine.DocumentLen(),
 	})
@@ -251,10 +281,13 @@ func (f *FulltextController) IndexFromDatabase(_ context.Context, ctx *frame.Con
 }
 
 func SearchRoutes(route route.IRouter) route.IRouter {
+	route.GET("/types", controller.IndexTypes)
 	route.POST("/new", controller.NewEngine)
 	route.POST("/database/index", controller.IndexFromDatabase)
 	route.POST("/index/:type/batch", controller.IndexInBatch)
 	route.POST("/index/:type", controller.Index)
+	route.GET("/metadata/:type", controller.Metadata)
+	route.POST("/cache/:type/clear", controller.ClearCache)
 	route.POST("/search/:type", controller.Search)
 	route.GET("/search/:type", controller.Search)
 	route.GET("/count/:type", controller.TotalDocuments)
@@ -272,6 +305,7 @@ func StartServer(addr string, routePrefix ...string) {
 		server.WithHandleMethodNotAllowed(true),
 		server.WithStreamBody(true),
 	)
+	srv.Use(cors.Default())
 	SearchRoutes(srv.Group(prefix))
 	srv.Spin()
 }

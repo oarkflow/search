@@ -28,6 +28,18 @@ func GetConfig(key string) *Config {
 	}
 }
 
+func AvailableEngines[Schema SchemaProps]() (types []map[string]any) {
+	engines.ForEach(func(key string, e any) bool {
+		engine := e.(*Engine[Schema])
+		types = append(types, map[string]any{
+			"key":   key,
+			"count": engine.DocumentLen(),
+		})
+		return true
+	})
+	return
+}
+
 func GetEngine[Schema SchemaProps](key string) (*Engine[Schema], error) {
 	eng, _ := engines.Get(key)
 	if eng != nil {

@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	icds := lib.ReadFileAsMap("icd10_codes.json")
+	icds := lib.ReadFileAsMap("sample.json")
 	db, _ := search.New[map[string]any](&search.Config{
 		Storage:         "memory",
 		DefaultLanguage: tokenizer.ENGLISH,
@@ -29,7 +29,7 @@ func main() {
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()
 	s, err := db.Search(&search.Params{
-		Query: "presence",
+		Condition: "effective_date=2015-01-01T00:00:00Z",
 	})
 	if err != nil {
 		panic(err)

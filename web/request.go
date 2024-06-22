@@ -5,15 +5,16 @@ import (
 )
 
 type Query struct {
-	Filters   []filters.Filter `json:"filters"`
-	Query     string           `json:"q" query:"q" validate:"required"`
-	Match     string           `json:"m" query:"m"`
-	Language  string           `json:"l" query:"l"`
-	Fields    []string         `json:"f" query:"f"`
-	Tolerance int              `json:"t" query:"t"`
-	Offset    int              `json:"o" query:"o"`
-	Size      int              `json:"s" query:"s"`
-	Exact     bool             `json:"e" query:"e"`
+	Filters   []*filters.Filter `json:"filters"`
+	Query     string            `json:"q" query:"q" validate:"required"`
+	Condition string            `json:"condition" query:"condition"`
+	Match     string            `json:"m" query:"m"`
+	Language  string            `json:"l" query:"l"`
+	Fields    []string          `json:"f" query:"f"`
+	Tolerance int               `json:"t" query:"t"`
+	Offset    int               `json:"o" query:"o"`
+	Size      int               `json:"s" query:"s"`
+	Exact     bool              `json:"e" query:"e"`
 }
 
 type FTSEngine struct {

@@ -47,34 +47,6 @@ func IsSupportedLanguage(language Language) bool {
 	return ok
 }
 
-var separators = map[byte]struct{}{
-	' ': {},
-	'.': {},
-	',': {},
-	';': {},
-	'!': {},
-	'?': {},
-	'-': {},
-}
-
-func splitSentence(text string) []string {
-	textLen := len(text)
-	words := make([]string, 0, strings.Count(text, " ")+1)
-	start := 0
-	for i := 0; i < textLen; i++ {
-		if _, exists := separators[text[i]]; exists {
-			if start < i {
-				words = append(words, text[start:i])
-			}
-			start = i + 1
-		}
-	}
-	if start < textLen {
-		words = append(words, text[start:])
-	}
-	return words
-}
-
 func Tokenize(params TokenizeParams, config Config, tokens map[string]int) error {
 	for _, token := range strings.Fields(lib.ToLower(params.Text)) {
 		if normToken := normalizeToken(normalizeParams{token: token, language: params.Language}, config); normToken != "" {

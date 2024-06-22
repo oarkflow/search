@@ -64,8 +64,9 @@ type DeleteParams[Schema SchemaProps] struct {
 }
 
 type Params struct {
-	Filters    []filters.Filter   `json:"filters"`
+	Filters    []*filters.Filter  `json:"filters"`
 	Query      string             `json:"query"`
+	Condition  string             `json:"condition"`
 	Properties []string           `json:"properties"`
 	BoolMode   Mode               `json:"boolMode"`
 	Exact      bool               `json:"exact"`
@@ -96,6 +97,7 @@ type BM25Params struct {
 type Result[Schema SchemaProps] struct {
 	Hits  Hits[Schema] `json:"hits"`
 	Count int          `json:"count"`
+	Total int          `json:"total"`
 }
 
 type Hit[Schema SchemaProps] struct {
@@ -209,6 +211,18 @@ func (db *Engine[Schema]) Compress() error {
 		return err
 	}
 	return os.RemoveAll(db.path)
+}
+
+func (db *Engine[Schema]) Metadata() map[string]any {
+	cfg := map[string]any{
+		"key":               db.key,
+		"index_keys":        db.indexKeys,
+		"language":          db.defaultLanguage,
+		"storage":           db.cfg.Storage,
+		"fields_to_store":   db.cfg.FieldsToStore,
+		"fields_to_exclude": db.cfg.FieldsToExclude,
+	}
+	return cfg
 }
 
 func (db *Engine[Schema]) GetDocument(id int64) (Schema, bool) {
@@ -373,9 +387,14 @@ func (db *Engine[Schema]) ClearCache() {
 	db.cache = nil
 }
 
+// CheckCondition function checks if a key-value map exists in any type of data
+func (db *Engine[Schema]) CheckCondition(data Schema, filter *filters.Sequence) bool {
+	return filter.Match(data)
+}
+
 // Check function checks if a key-value map exists in any type of data
-func (db *Engine[Schema]) Check(data Schema, filter []filters.Filter) bool {
-	return filters.MatchGroup(data, filters.FilterGroup{Operator: filters.AND, Filters: filter})
+func (db *Engine[Schema]) Check(data Schema, filter []*filters.Filter) bool {
+	return filters.MatchGroup(data, &filters.FilterGroup{Operator: filters.AND, Filters: filter})
 }
 
 func (db *Engine[Schema]) Sample(size ...int) (Result[Schema], error) {
@@ -391,8 +410,8 @@ func (db *Engine[Schema]) Sample(size ...int) (Result[Schema], error) {
 	return db.prepareResult(results, &Params{Paginate: false})
 }
 
-func ProcessQueryAndFilters(params *Params) {
-	var extraFilters []filters.Filter
+func ProcessQueryAndFilters(params *Params, seq *filters.Sequence) {
+	var extraFilters []*filters.Filter
 	if params.Query != "" {
 		for _, filter := range params.Filters {
 			if filter.Field != "q" {
@@ -423,12 +442,19 @@ func ProcessQueryAndFilters(params *Params) {
 			}
 		}
 	}
+	if params.Query == "" && seq != nil {
+		firstFilter, err := filters.FirstTermFilter(seq)
+		if err == nil {
+			params.Query = fmt.Sprintf("%v", firstFilter.Value)
+			params.Properties = append(params.Properties, firstFilter.Field)
+		}
+	}
 
 	// Update the filters in params
 	params.Filters = extraFilters
 }
 
-func removeFilter(filters []filters.Filter, filterToRemove filters.Filter) []filters.Filter {
+func removeFilter(filters []*filters.Filter, filterToRemove *filters.Filter) []*filters.Filter {
 	for i, filter := range filters {
 		if filter == filterToRemove {
 			return append(filters[:i], filters[i+1:]...)
@@ -453,7 +479,11 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	if params.BoolMode == "" {
 		params.BoolMode = AND
 	}
-	ProcessQueryAndFilters(params)
+	var filter *filters.Sequence
+	if params.Condition != "" {
+		filter, _ = filters.ParseSQL(params.Condition)
+	}
+	ProcessQueryAndFilters(params, filter)
 	if params.Query == "" && len(params.Filters) == 0 {
 		return db.Sample(params.Limit)
 	}
@@ -463,7 +493,7 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	}
 	results := make(Hits[Schema], 0)
 	if len(allIdScores) == 0 && params.Query == "" {
-		return db.Sample()
+		return db.Sample(params.Limit)
 	}
 	cache := make(map[int64]float64)
 	defer func() {
@@ -475,12 +505,17 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 		if !ok {
 			continue
 		}
-		if len(params.Filters) == 0 {
+		if len(params.Filters) == 0 && params.Condition == "" {
 			cache[id] = score
 			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
 			continue
 		}
-		if db.Check(doc, params.Filters) {
+		if params.Condition != "" {
+			if db.CheckCondition(doc, filter) {
+				cache[id] = score
+				results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
+			}
+		} else if db.Check(doc, params.Filters) {
 			cache[id] = score
 			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
 		}
@@ -499,7 +534,7 @@ func (db *Engine[Schema]) addIndexes(keys []string) {
 
 func (db *Engine[Schema]) addIndex(key string) {
 	db.indexes.Set(key, NewIndex())
-	db.indexKeys = append(db.indexKeys, key)
+	db.indexKeys = lib.Unique(append(db.indexKeys, key))
 }
 
 func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, error) {
@@ -550,13 +585,13 @@ func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, err
 func (db *Engine[Schema]) prepareResult(results Hits[Schema], params *Params) (Result[Schema], error) {
 	sort.Sort(results)
 	if !params.Paginate {
-		return Result[Schema]{Hits: results, Count: len(results)}, nil
+		return Result[Schema]{Hits: results, Count: len(results), Total: db.DocumentLen()}, nil
 	}
 	if params.Limit == 0 {
 		params.Limit = 20
 	}
 	start, stop := lib.Paginate(params.Offset, params.Limit, len(results))
-	return Result[Schema]{Hits: results[start:stop], Count: len(results)}, nil
+	return Result[Schema]{Hits: results[start:stop], Count: len(results), Total: db.DocumentLen()}, nil
 }
 
 func (db *Engine[Schema]) getDocuments(scores map[int64]float64) Hits[Schema] {

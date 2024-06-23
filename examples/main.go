@@ -29,7 +29,7 @@ func main() {
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()
 	s, err := db.Search(&search.Params{
-		Condition: "effective_date=2015-01-01T00:00:00Z",
+		Condition: "effective_date LIKE '2016-01-01%'",
 	})
 	if err != nil {
 		panic(err)

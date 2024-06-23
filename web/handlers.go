@@ -14,6 +14,7 @@ import (
 	"github.com/oarkflow/filters"
 
 	"github.com/oarkflow/search"
+	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/tokenizer"
 
 	"github.com/oarkflow/frame"
@@ -305,6 +306,17 @@ func StartServer(addr string, routePrefix ...string) {
 		server.WithHandleMethodNotAllowed(true),
 		server.WithStreamBody(true),
 	)
+	srv.StaticFS("/", &frame.FS{
+		Root:                 lib.DistPath(),
+		IndexNames:           []string{"index.html"},
+		GenerateIndexPages:   false,
+		Compress:             false,
+		AcceptByteRange:      false,
+		PathRewrite:          nil,
+		PathNotFound:         nil,
+		CacheDuration:        0,
+		CompressedFileSuffix: "",
+	})
 	srv.Use(cors.Default())
 	SearchRoutes(srv.Group(prefix))
 	srv.Spin()

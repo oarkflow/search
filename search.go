@@ -14,6 +14,7 @@ import (
 
 	"github.com/oarkflow/gopool"
 	"github.com/oarkflow/gopool/spinlock"
+	"github.com/oarkflow/log"
 	"github.com/oarkflow/xid"
 
 	"github.com/oarkflow/filters"
@@ -480,8 +481,12 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 		params.BoolMode = AND
 	}
 	var filter *filters.Sequence
+	var err error
 	if params.Condition != "" {
-		filter, _ = filters.ParseSQL(params.Condition)
+		filter, err = filters.ParseSQL(params.Condition)
+		if err != nil {
+			log.Error().Err(err).Msg("Unable to parse condition")
+		}
 	}
 	ProcessQueryAndFilters(params, filter)
 	if params.Query == "" && len(params.Filters) == 0 {

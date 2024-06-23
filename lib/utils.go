@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
@@ -248,4 +249,17 @@ func Stats() uint64 {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	return m.Alloc / (1024 * 1024)
+}
+
+func DistPath() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	distDir := filepath.Join(cwd, "cmd", "dist")
+	if _, err := os.Stat(distDir); os.IsNotExist(err) {
+		return "./dist"
+	}
+	return "./cmd/dist"
 }

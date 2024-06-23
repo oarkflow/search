@@ -3,7 +3,6 @@ module github.com/oarkflow/search
 go 1.22.3
 
 require (
-	github.com/gookit/color v1.5.4
 	github.com/klauspost/compress v1.17.9
 	github.com/oarkflow/filters v0.0.13
 	github.com/oarkflow/flydb v0.0.1
@@ -12,9 +11,9 @@ require (
 	github.com/oarkflow/log v1.0.79
 	github.com/oarkflow/maps v0.0.0-20240406152114-fc5a94538f01
 	github.com/oarkflow/metadata v0.0.64
+	github.com/oarkflow/msgpack v0.0.1
 	github.com/oarkflow/squealx v0.0.19
 	github.com/oarkflow/xid v1.2.5
-	github.com/vmihailenco/msgpack/v5 v5.4.1
 	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8
 	golang.org/x/text v0.16.0
 )
@@ -48,10 +47,8 @@ require (
 	github.com/toorop/go-dkim v0.0.0-20240103092955-90b7d1423f92 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xhit/go-simple-mail/v2 v2.16.0 // indirect
-	github.com/xo/terminfo v0.0.0-20210125001918-ca9a967f8778 // indirect
 	golang.org/x/crypto v0.24.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
-	golang.org/x/sys v0.21.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 )

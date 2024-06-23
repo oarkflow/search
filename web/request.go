@@ -17,7 +17,7 @@ type Query struct {
 	Exact     bool              `json:"e" query:"e"`
 }
 
-type FTSEngine struct {
+type Options struct {
 	Key             string   `json:"key"`
 	Storage         string   `json:"storage"`
 	FieldsToIndex   []string `json:"fields_to_index"`

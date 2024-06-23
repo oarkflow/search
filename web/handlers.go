@@ -97,7 +97,7 @@ func (f *FulltextController) IndexTypes(_ context.Context, ctx *frame.Context) {
 }
 
 func (f *FulltextController) NewEngine(_ context.Context, ctx *frame.Context) {
-	var req FTSEngine
+	var req Options
 	err := ctx.Bind(&req)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
@@ -289,7 +289,6 @@ func SearchRoutes(route route.IRouter) route.IRouter {
 	if ok {
 		dir := filepath.Dir(file)
 		root = filepath.Join(dir, root)
-		fmt.Println(root)
 	}
 
 	// Extract the directory from the file path
@@ -298,16 +297,16 @@ func SearchRoutes(route route.IRouter) route.IRouter {
 		IndexNames: []string{"index.html"},
 		Compress:   true,
 	})
-	route.GET("/types", controller.IndexTypes)
 	route.POST("/new", controller.NewEngine)
-	route.POST("/database/index", controller.IndexFromDatabase)
-	route.POST("/index/:type/batch", controller.IndexInBatch)
-	route.POST("/index/:type", controller.Index)
-	route.GET("/metadata/:type", controller.Metadata)
-	route.POST("/cache/:type/clear", controller.ClearCache)
-	route.POST("/search/:type", controller.Search)
-	route.GET("/search/:type", controller.Search)
+	route.GET("/types", controller.IndexTypes)
 	route.GET("/count/:type", controller.TotalDocuments)
+	route.POST("/index/:type", controller.Index)
+	route.GET("/search/:type", controller.Search)
+	route.POST("/search/:type", controller.Search)
+	route.GET("/metadata/:type", controller.Metadata)
+	route.POST("/database/index", controller.IndexFromDatabase)
+	route.POST("/cache/:type/clear", controller.ClearCache)
+	route.POST("/index/:type/batch", controller.IndexInBatch)
 	return route
 }
 

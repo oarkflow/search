@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gookit/color"
 	"github.com/oarkflow/gopool"
 	"github.com/oarkflow/gopool/spinlock"
 	"github.com/oarkflow/log"
@@ -67,6 +66,7 @@ func IndexFromDB(db metadata.DataSource, dbConfig Database, start time.Time) err
 		}
 		pool.Wait()
 		log.Info().Str("latency", fmt.Sprintf("%s", time.Since(start))).Int("total_documents", totalCount).Msg("Indexed documents...")
+		return nil
 	}
 
 	fromDB, err := db.GetRawCollection(query)
@@ -83,7 +83,7 @@ func IndexFromDB(db metadata.DataSource, dbConfig Database, start time.Time) err
 	fromDB = fromDB[:0]
 	runtime.GC()
 	db.Close()
-	color.Greenf("Documents %s: %d, latency: %s \n", dbConfig.IndexKey, totalCount, time.Since(start))
+	log.Info().Str("latency", fmt.Sprintf("%s", time.Since(start))).Int("total_documents", totalCount).Msg("Indexed documents...")
 	return nil
 }
 
@@ -152,6 +152,6 @@ func IndexFromDBWithPaginate(db metadata.DataSource, dbConfig Database, start ti
 		paging.Page++
 	}
 	db.Close()
-	color.Greenf("Documents %s: %d, latency: %s \n", dbConfig.IndexKey, totalCount, time.Since(start))
+	log.Info().Str("latency", fmt.Sprintf("%s", time.Since(start))).Int("total_documents", totalCount).Msg("Indexed documents...")
 	return nil
 }

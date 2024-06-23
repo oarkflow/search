@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	req := web.FTSEngine{
+	req := web.Options{
 		Key:     "cpt",
 		Storage: "memory",
 	}
@@ -70,7 +70,7 @@ func main() {
 	searchQuery(req)
 }
 
-func searchQuery(req web.FTSEngine) {
+func searchQuery(req web.Options) {
 	query := web.Query{
 		Query: "58",
 	}

@@ -3,6 +3,8 @@ package web
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -14,7 +16,6 @@ import (
 	"github.com/oarkflow/filters"
 
 	"github.com/oarkflow/search"
-	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/tokenizer"
 
 	"github.com/oarkflow/frame"
@@ -282,8 +283,18 @@ func (f *FulltextController) IndexFromDatabase(_ context.Context, ctx *frame.Con
 }
 
 func SearchRoutes(route route.IRouter) route.IRouter {
+	root := "./dist"
+	// Use runtime.Caller to get information about the current file
+	_, file, _, ok := runtime.Caller(0)
+	if ok {
+		dir := filepath.Dir(file)
+		root = filepath.Join(dir, root)
+		fmt.Println(root)
+	}
+
+	// Extract the directory from the file path
 	route.StaticFS("/", &frame.FS{
-		Root:       lib.DistPath(),
+		Root:       root,
 		IndexNames: []string{"index.html"},
 		Compress:   true,
 	})

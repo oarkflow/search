@@ -282,6 +282,11 @@ func (f *FulltextController) IndexFromDatabase(_ context.Context, ctx *frame.Con
 }
 
 func SearchRoutes(route route.IRouter) route.IRouter {
+	route.StaticFS("/", &frame.FS{
+		Root:       lib.DistPath(),
+		IndexNames: []string{"index.html"},
+		Compress:   true,
+	})
 	route.GET("/types", controller.IndexTypes)
 	route.POST("/new", controller.NewEngine)
 	route.POST("/database/index", controller.IndexFromDatabase)
@@ -306,17 +311,6 @@ func StartServer(addr string, routePrefix ...string) {
 		server.WithHandleMethodNotAllowed(true),
 		server.WithStreamBody(true),
 	)
-	srv.StaticFS("/", &frame.FS{
-		Root:                 lib.DistPath(),
-		IndexNames:           []string{"index.html"},
-		GenerateIndexPages:   false,
-		Compress:             false,
-		AcceptByteRange:      false,
-		PathRewrite:          nil,
-		PathNotFound:         nil,
-		CacheDuration:        0,
-		CompressedFileSuffix: "",
-	})
 	srv.Use(cors.Default())
 	SearchRoutes(srv.Group(prefix))
 	srv.Spin()

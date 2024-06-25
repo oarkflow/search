@@ -85,6 +85,10 @@ func reformatTimes(val reflect.Value) {
 				if t, err := date.Parse(mapValue.String()); err == nil {
 					val.SetMapIndex(key, reflect.ValueOf(t.Format(TimeFormat)))
 				}
+			} else if mapValue.Type() == reflect.TypeOf(time.Time{}) {
+				t := mapValue.Interface().(time.Time)
+				formatted := t.Format(TimeFormat)
+				val.SetMapIndex(key, reflect.ValueOf(formatted))
 			} else {
 				reformatTimes(mapValue)
 			}
@@ -108,5 +112,7 @@ func reformatTimes(val reflect.Value) {
 			}
 			reformatTimes(elem)
 		}
+	case reflect.Interface:
+		reformatTimes(val.Elem())
 	}
 }

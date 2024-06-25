@@ -2,10 +2,14 @@ package web
 
 import (
 	"fmt"
+	"reflect"
+	"time"
 
 	"github.com/oarkflow/frame"
 	"github.com/oarkflow/frame/pkg/protocol/consts"
 )
+
+var TimeFormat = time.DateOnly
 
 type Response struct {
 	Additional any    `json:"additional,omitempty"`
@@ -35,6 +39,7 @@ func Failed(ctx *frame.Context, code int, message string, additional any, stackT
 }
 
 func Success(ctx *frame.Context, code int, data any, message ...string) {
+	reformatTimes(reflect.ValueOf(&data))
 	response := Response{
 		Code:    code,
 		Data:    data,
@@ -60,5 +65,44 @@ func Render(ctx *frame.Context, view string, data any, layouts ...string) {
 	if err != nil {
 		ctx.HTML(consts.StatusOK, "errors/404", data)
 		return
+	}
+}
+
+// Helper function to reformat time fields in a value using reflection
+func reformatTimes(val reflect.Value) {
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	switch val.Kind() {
+	case reflect.Map:
+		for _, key := range val.MapKeys() {
+			mapValue := val.MapIndex(key)
+			if mapValue.Kind() == reflect.Interface {
+				mapValue = mapValue.Elem()
+			}
+			reformatTimes(mapValue)
+		}
+	case reflect.Struct:
+		for i := 0; i < val.NumField(); i++ {
+			field := val.Field(i)
+			if field.Kind() == reflect.Struct && field.Type() == reflect.TypeOf(time.Time{}) {
+				t := field.Interface().(time.Time)
+				formatted := t.Format(TimeFormat)
+				field.Set(reflect.ValueOf(formatted))
+			} else {
+				reformatTimes(field)
+			}
+		}
+	case reflect.Slice:
+		for i := 0; i < val.Len(); i++ {
+			elem := val.Index(i)
+			if elem.Kind() == reflect.Interface {
+				elem = elem.Elem()
+			}
+			reformatTimes(elem)
+		}
+	case reflect.Interface:
+		reformatTimes(val.Elem())
 	}
 }

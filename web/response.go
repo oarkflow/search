@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/oarkflow/date"
 	"github.com/oarkflow/frame"
 	"github.com/oarkflow/frame/pkg/protocol/consts"
 )
@@ -73,7 +74,6 @@ func reformatTimes(val reflect.Value) {
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
 	}
-
 	switch val.Kind() {
 	case reflect.Map:
 		for _, key := range val.MapKeys() {
@@ -81,7 +81,13 @@ func reformatTimes(val reflect.Value) {
 			if mapValue.Kind() == reflect.Interface {
 				mapValue = mapValue.Elem()
 			}
-			reformatTimes(mapValue)
+			if mapValue.Kind() == reflect.String {
+				if t, err := date.Parse(mapValue.String()); err == nil {
+					val.SetMapIndex(key, reflect.ValueOf(t.Format(TimeFormat)))
+				}
+			} else {
+				reformatTimes(mapValue)
+			}
 		}
 	case reflect.Struct:
 		for i := 0; i < val.NumField(); i++ {
@@ -102,7 +108,5 @@ func reformatTimes(val reflect.Value) {
 			}
 			reformatTimes(elem)
 		}
-	case reflect.Interface:
-		reformatTimes(val.Elem())
 	}
 }

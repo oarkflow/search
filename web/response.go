@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/oarkflow/date"
 	"github.com/oarkflow/frame"
 	"github.com/oarkflow/frame/pkg/protocol/consts"
 )
@@ -40,7 +39,7 @@ func Failed(ctx *frame.Context, code int, message string, additional any, stackT
 }
 
 func Success(ctx *frame.Context, code int, data any, message ...string) {
-	reformatTimes(reflect.ValueOf(&data))
+	reformatTimes(reflect.ValueOf(&data), TimeFormat)
 	response := Response{
 		Code:    code,
 		Data:    data,
@@ -68,12 +67,18 @@ func Render(ctx *frame.Context, view string, data any, layouts ...string) {
 		return
 	}
 }
+func reformatTimes(val reflect.Value, timeFormat string) {
+	if !val.IsValid() {
+		return
+	}
 
-// Helper function to reformat time fields in a value using reflection
-func reformatTimes(val reflect.Value) {
 	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			return
+		}
 		val = val.Elem()
 	}
+
 	switch val.Kind() {
 	case reflect.Map:
 		for _, key := range val.MapKeys() {
@@ -81,27 +86,33 @@ func reformatTimes(val reflect.Value) {
 			if mapValue.Kind() == reflect.Interface {
 				mapValue = mapValue.Elem()
 			}
+			if !mapValue.IsValid() {
+				continue
+			}
 			if mapValue.Kind() == reflect.String {
-				if t, err := date.Parse(mapValue.String()); err == nil {
-					val.SetMapIndex(key, reflect.ValueOf(t.Format(TimeFormat)))
+				if t, err := time.Parse(time.RFC3339, mapValue.String()); err == nil {
+					val.SetMapIndex(key, reflect.ValueOf(t.Format(timeFormat)))
 				}
 			} else if mapValue.Type() == reflect.TypeOf(time.Time{}) {
 				t := mapValue.Interface().(time.Time)
-				formatted := t.Format(TimeFormat)
+				formatted := t.Format(timeFormat)
 				val.SetMapIndex(key, reflect.ValueOf(formatted))
 			} else {
-				reformatTimes(mapValue)
+				reformatTimes(mapValue, timeFormat)
 			}
 		}
 	case reflect.Struct:
 		for i := 0; i < val.NumField(); i++ {
 			field := val.Field(i)
+			if !field.IsValid() || !field.CanSet() {
+				continue
+			}
 			if field.Kind() == reflect.Struct && field.Type() == reflect.TypeOf(time.Time{}) {
 				t := field.Interface().(time.Time)
-				formatted := t.Format(TimeFormat)
+				formatted := t.Format(timeFormat)
 				field.Set(reflect.ValueOf(formatted))
 			} else {
-				reformatTimes(field)
+				reformatTimes(field, timeFormat)
 			}
 		}
 	case reflect.Slice:
@@ -110,9 +121,12 @@ func reformatTimes(val reflect.Value) {
 			if elem.Kind() == reflect.Interface {
 				elem = elem.Elem()
 			}
-			reformatTimes(elem)
+			if !elem.IsValid() {
+				continue
+			}
+			reformatTimes(elem, timeFormat)
 		}
 	case reflect.Interface:
-		reformatTimes(val.Elem())
+		reformatTimes(val.Elem(), timeFormat)
 	}
 }

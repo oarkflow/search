@@ -144,14 +144,8 @@ func (t *Trie) Find(token string, tolerance int, exact bool) map[int64]float64 {
 			}
 			return nil
 		}
-
-		// skip to the next divergent character
 		i += subwordLength
-
-		// navigate in the child node
 		currNode = currChild
-
-		// update the current node word
 		currNodeWord = append(currNodeWord, currChild.subword...)
 	}
 

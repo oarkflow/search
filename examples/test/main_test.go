@@ -7,20 +7,11 @@ import (
 
 	"github.com/oarkflow/search"
 	"github.com/oarkflow/search/lib"
-	"github.com/oarkflow/search/tokenizer"
 )
 
 func TestMap(t *testing.T) {
 	icds := lib.ReadFileAsMap("icd10_codes.json")
-	db, _ := search.New[map[string]any](&search.Config{
-		Storage:         "memory",
-		DefaultLanguage: tokenizer.ENGLISH,
-		TokenizerConfig: &tokenizer.Config{
-			EnableStemming:  true,
-			EnableStopWords: true,
-		},
-		IndexKeys: search.DocFields(icds[0]),
-	})
+	db, _ := search.New[map[string]any]()
 	var startTime = time.Now()
 	before := lib.Stats()
 	db.InsertWithPool(icds, 3, 100)

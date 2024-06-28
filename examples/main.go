@@ -6,20 +6,11 @@ import (
 
 	"github.com/oarkflow/search"
 	"github.com/oarkflow/search/lib"
-	"github.com/oarkflow/search/tokenizer"
 )
 
 func main() {
 	icds := lib.ReadFileAsMap("sample.json")
-	db, _ := search.New[map[string]any](&search.Config{
-		Storage:         "memory",
-		DefaultLanguage: tokenizer.ENGLISH,
-		TokenizerConfig: &tokenizer.Config{
-			EnableStemming:  true,
-			EnableStopWords: true,
-		},
-		IndexKeys: search.DocFields(icds[0]),
-	})
+	db, _ := search.New[map[string]any]()
 	var startTime = time.Now()
 	before := lib.Stats()
 	db.InsertWithPool(icds, 3, 100)
@@ -29,11 +20,11 @@ func main() {
 	fmt.Println("Indexing took", time.Since(startTime))
 	startTime = time.Now()
 	s, err := db.Search(&search.Params{
-		Condition: "effective_date LIKE '2016-01-01%'",
+		Condition: "effective_date LIKE '2015-06-07%'",
 	})
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Searching took", time.Since(startTime))
+	fmt.Println("Searching took", time.Since(startTime), s.Message)
 	fmt.Println(s.Hits)
 }

@@ -96,9 +96,10 @@ type BM25Params struct {
 }
 
 type Result[Schema SchemaProps] struct {
-	Hits  Hits[Schema] `json:"hits"`
-	Count int          `json:"count"`
-	Total int          `json:"total"`
+	Hits    Hits[Schema] `json:"hits"`
+	Count   int          `json:"count"`
+	Total   int          `json:"total"`
+	Message string       `json:"message"`
 }
 
 type Hit[Schema SchemaProps] struct {
@@ -153,14 +154,18 @@ func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], erro
 	switch c.Storage {
 	case "json", "jsondb":
 		return storage.NewJsonDB[int64, Schema](c.Path, c.Compress, c.SampleSize)
-	case "memory", "memdb":
-		return storage.NewMemDB[int64, Schema](c.SampleSize)
-	default:
+	case "flydb":
 		return storage.NewFlyDB[int64, Schema](c.Path, c.Compress, c.SampleSize)
+	default:
+		return storage.NewMemDB[int64, Schema](c.SampleSize)
 	}
 }
 
-func New[Schema SchemaProps](c *Config) (*Engine[Schema], error) {
+func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
+	c := &Config{}
+	if len(cfg) > 0 {
+		c = cfg[0]
+	}
 	if c.TokenizerConfig == nil {
 		c.TokenizerConfig = &tokenizer.Config{
 			EnableStemming:  true,
@@ -332,10 +337,19 @@ func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker, batchSize in
 	if len(lang) > 0 {
 		language = lang[0]
 	}
-	for _, doc := range docs {
-		pool.AddTask(func() (interface{}, error) {
-			return db.Insert(doc, language)
-		})
+	for i, doc := range docs {
+		if i == 0 {
+			// Checking for first doc to make sure indexKeys are added on first Insert
+			// if not already exists
+			_, err := db.Insert(doc, language)
+			if err != nil {
+				errs = append(errs, err)
+			}
+		} else {
+			pool.AddTask(func() (interface{}, error) {
+				return db.Insert(doc, language)
+			})
+		}
 	}
 	pool.Wait()
 	return errs
@@ -490,16 +504,16 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	}
 	ProcessQueryAndFilters(params, filter)
 	if params.Query == "" && len(params.Filters) == 0 {
-		return db.Sample(params.Limit)
+		return db.sampleWithFilters(params.Limit)
 	}
 	allIdScores, err := db.findWithParams(params)
 	if err != nil {
 		return Result[Schema]{}, err
 	}
-	results := make(Hits[Schema], 0)
 	if len(allIdScores) == 0 && params.Query == "" {
-		return db.Sample(params.Limit)
+		return db.sampleWithFilters(params.Limit)
 	}
+	results := make(Hits[Schema], 0)
 	cache := make(map[int64]float64)
 	defer func() {
 		results = nil
@@ -535,6 +549,15 @@ func (db *Engine[Schema]) addIndexes(keys []string) {
 	for _, key := range keys {
 		db.addIndex(key)
 	}
+}
+
+func (db *Engine[Schema]) sampleWithFilters(limit int) (Result[Schema], error) {
+	rs, err := db.Sample(limit)
+	if err != nil {
+		return rs, err
+	}
+	rs.Message = "[WARN] - Query or Filters not applied"
+	return rs, nil
 }
 
 func (db *Engine[Schema]) addIndex(key string) {

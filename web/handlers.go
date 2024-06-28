@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oarkflow/frame/middlewares/server/cors"
+	"github.com/oarkflow/frame/middlewares/server/monitor"
 	"github.com/oarkflow/frame/pkg/protocol/consts"
 	"github.com/oarkflow/frame/server"
 	"github.com/oarkflow/metadata"
@@ -76,9 +77,9 @@ func (f *FulltextController) Metadata(_ context.Context, ctx *frame.Context) {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	metadata := engine.Metadata()
-	metadata["key"] = keyType
-	Success(ctx, consts.StatusOK, metadata)
+	details := engine.Metadata()
+	details["key"] = keyType
+	Success(ctx, consts.StatusOK, details)
 }
 
 func (f *FulltextController) ClearCache(_ context.Context, ctx *frame.Context) {
@@ -322,6 +323,7 @@ func StartServer(addr string, routePrefix ...string) {
 		server.WithStreamBody(true),
 	)
 	srv.Use(cors.Default())
+	srv.GET("/monitor", monitor.New())
 	SearchRoutes(srv.Group(prefix))
 	srv.Spin()
 }

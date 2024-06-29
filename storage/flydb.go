@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 
+	"github.com/oarkflow/filters"
 	"github.com/oarkflow/flydb"
 	"github.com/oarkflow/msgpack"
 
@@ -51,13 +52,39 @@ func (s *FlyDB[K, V]) Del(key K) error {
 }
 
 // Sample removes a key-value pair from disk
-func (s *FlyDB[K, V]) Sample(size ...int) (map[string]V, error) {
+func (s *FlyDB[K, V]) Sample(params SampleParams) (map[string]V, error) {
 	sz := s.sampleSize
-	if len(size) > 0 && size[0] != 0 {
-		sz = size[0]
+	if params.Size != 0 {
+		sz = params.Size
 	}
 	value := make(map[string]V)
 	it := s.client.Items()
+	count := 0
+	for count < sz {
+		key, val, err := it.Next()
+		if err == flydb.ErrIterationDone {
+			break
+		}
+		data, exists := s.GetData(val)
+		if exists {
+			if params.Sequence != nil {
+				if params.Sequence.Match(data) {
+					tmp := fmt.Sprint(key)
+					value[tmp] = data
+					count++
+				}
+			} else if params.Filters != nil {
+				if filters.MatchGroup(val, &filters.FilterGroup{Operator: filters.AND, Filters: params.Filters}) {
+					tmp := fmt.Sprint(key)
+					value[tmp] = data
+					count++
+				}
+			} else {
+				value[string(key)] = data
+				count++
+			}
+		}
+	}
 	for i := 0; i < sz; i++ {
 		key, val, err := it.Next()
 		if err == flydb.ErrIterationDone {

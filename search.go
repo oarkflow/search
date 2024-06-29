@@ -152,8 +152,6 @@ func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], erro
 		c.SampleSize = 20
 	}
 	switch c.Storage {
-	case "json", "jsondb":
-		return storage.NewJsonDB[int64, Schema](c.Path, c.Compress, c.SampleSize)
 	case "flydb":
 		return storage.NewFlyDB[int64, Schema](c.Path, c.Compress, c.SampleSize)
 	default:
@@ -412,9 +410,9 @@ func (db *Engine[Schema]) Check(data Schema, filter []*filters.Filter) bool {
 	return filters.MatchGroup(data, &filters.FilterGroup{Operator: filters.AND, Filters: filter})
 }
 
-func (db *Engine[Schema]) Sample(size ...int) (Result[Schema], error) {
+func (db *Engine[Schema]) Sample(params storage.SampleParams) (Result[Schema], error) {
 	results := make(Hits[Schema], 0)
-	sampleDocs, err := db.documents.Sample(size...)
+	sampleDocs, err := db.documents.Sample(params)
 	if err != nil {
 		return Result[Schema]{}, err
 	}
@@ -504,14 +502,14 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	}
 	ProcessQueryAndFilters(params, filter)
 	if params.Query == "" && len(params.Filters) == 0 {
-		return db.sampleWithFilters(params.Limit)
+		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Sequence: filter, Filters: params.Filters})
 	}
 	allIdScores, err := db.findWithParams(params)
 	if err != nil {
 		return Result[Schema]{}, err
 	}
 	if len(allIdScores) == 0 && params.Query == "" {
-		return db.sampleWithFilters(params.Limit)
+		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Sequence: filter, Filters: params.Filters})
 	}
 	results := make(Hits[Schema], 0)
 	cache := make(map[int64]float64)
@@ -551,12 +549,14 @@ func (db *Engine[Schema]) addIndexes(keys []string) {
 	}
 }
 
-func (db *Engine[Schema]) sampleWithFilters(limit int) (Result[Schema], error) {
-	rs, err := db.Sample(limit)
+func (db *Engine[Schema]) sampleWithFilters(params storage.SampleParams) (Result[Schema], error) {
+	rs, err := db.Sample(params)
 	if err != nil {
 		return rs, err
 	}
-	rs.Message = "[WARN] - Query or Filters not applied"
+	if params.Filters == nil && params.Sequence == nil {
+		rs.Message = "[WARN] - Query or Filters not applied"
+	}
 	return rs, nil
 }
 

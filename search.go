@@ -210,11 +210,12 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 }
 
 func (db *Engine[Schema]) Compress() error {
-	err := lib.CompressFolder(db.path, db.path+".zip")
+	/*err := lib.CompressFolder(db.path, db.path+".zip")
 	if err != nil {
 		return err
 	}
-	return os.RemoveAll(db.path)
+	return os.RemoveAll(db.path)*/
+	return nil
 }
 
 func (db *Engine[Schema]) Metadata() map[string]any {

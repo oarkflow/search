@@ -91,10 +91,7 @@ func CompressFolder(source, target string) error {
 	})
 }
 
-func getFilesFromCompressedFile(file string, ids []string) {
-
-}
-
+/*
 func decompressFolder(source, target string) error {
 	zipReader, err := zip.OpenReader(source)
 	if err != nil {
@@ -148,3 +145,4 @@ func readFilesFromFolder(folder string) ([]os.FileInfo, error) {
 	}
 	return files, nil
 }
+*/

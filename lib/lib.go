@@ -4,14 +4,6 @@ import (
 	"math"
 )
 
-func Count(tokens []string) map[string]int {
-	tokensCounter := make(map[string]int, len(tokens))
-	for _, token := range tokens {
-		tokensCounter[token]++
-	}
-	return tokensCounter
-}
-
 func BM25(tf float64, matchingDocsCount int, fieldLength int, avgFieldLength float64, docsCount int, k float64, b float64, d float64) float64 {
 	idf := math.Log(1 + (float64(docsCount-matchingDocsCount)+0.5)/(float64(matchingDocsCount)+0.5))
 	return idf * (d + tf*(k+1)) / (tf + k*(1-b+(b*float64(fieldLength))/avgFieldLength))
@@ -28,22 +20,6 @@ func Paginate(offset int, limit int, sliceLength int) (int, int) {
 	}
 
 	return offset, end
-}
-
-func CommonPrefixOld(a []rune, b []rune) ([]rune, bool) {
-	minLength := int(math.Min(float64(len(a)), float64(len(b))))
-	commonPrefix := make([]rune, 0, minLength)
-	equal := len(a) == len(b)
-
-	for i := 0; i < minLength; i++ {
-		if a[i] != b[i] {
-			equal = false
-			break
-		}
-		commonPrefix = append(commonPrefix, a[i])
-	}
-
-	return commonPrefix, equal
 }
 
 func CommonPrefix(a []rune, b []rune) ([]rune, bool) {
@@ -197,7 +173,6 @@ func boundedLevenshtein(a []rune, b []rune, tolerance int) int {
 
 const (
 	toLowerTable = "\x00\x01\x02\x03\x04\x05\x06\a\b\t\n\v\f\r\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f !\"#$%&'()*+,-./0123456789:;<=>?@abcdefghijklmnopqrstuvwxyz[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\u007f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff"
-	toUpperTable = "\x00\x01\x02\x03\x04\x05\x06\a\b\t\n\v\f\r\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}~\u007f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff"
 )
 
 // ToLower is the equivalent of strings.ToLower
@@ -211,36 +186,14 @@ func ToLower(b string) string {
 	return FromByte(res)
 }
 
-// ToUpper is the equivalent of strings.ToUpper
-func ToUpper(b string) string {
-	res := make([]byte, len(b))
-	copy(res, b)
-	for i := 0; i < len(res); i++ {
-		res[i] = toUpperTable[res[i]]
-	}
-
-	return FromByte(res)
-}
-
-func ToLowerBytes(b []byte) []byte {
-	for i := range b {
-		if b[i] >= 'A' && b[i] <= 'Z' {
-			b[i] += 32 // Lowercase ASCII conversion
-		}
-	}
-	return b
-}
-
-func Unique[T comparable](slice []T) []T {
+func Unique[T comparable](slice []T) (result []T) {
 	seen := make(map[T]struct{})
-	result := []T{}
-
 	for _, v := range slice {
 		if _, ok := seen[v]; !ok {
 			seen[v] = struct{}{}
 			result = append(result, v)
 		}
 	}
-
+	clear(seen)
 	return result
 }

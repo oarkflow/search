@@ -80,8 +80,6 @@ github.com/oarkflow/expr v0.0.10 h1:pleTz2WlwbJ0yfQGbD1/LhD8Mi7lvXGs1POJ8kFjj+0=
 github.com/oarkflow/expr v0.0.10/go.mod h1:WgMZqP44h7SBwKyuGZwC15vj46lHtI0/QpKdEZpRVE4=
 github.com/oarkflow/filters v0.0.17 h1:KnM1bdqexe2lFh52i4OC3dVpW6yJ2NFUrtAM5L80dC0=
 github.com/oarkflow/filters v0.0.17/go.mod h1:vEVfLeTq3UrtnpH+p8tXDEH/9g97t2e6v7k/tOa0Dd4=
-github.com/oarkflow/flydb v0.0.1 h1:Y1aHcTrXcAjH6qqresjkpLQYwN2+vhJZUciPEmJaf/E=
-github.com/oarkflow/flydb v0.0.1/go.mod h1:45FtOqeKnmJ9dwsMqniuYNCd0oiok2iFGh/8OqFeAEQ=
 github.com/oarkflow/frame v0.0.68 h1:p4UkRmhdPQyQbh5KRrnRgzbW8lSOKRl2V+DZ+pRCWrI=
 github.com/oarkflow/frame v0.0.68/go.mod h1:rcIskN3uuvgVHvAp+t4fdQLefrytHeWj/ZKNsRVonPM=
 github.com/oarkflow/gopool v0.0.1 h1:i3Z+0dtVshW2nLWxuaiwvB5MTRWndYtGbUeGwqPnQlc=
@@ -94,8 +92,6 @@ github.com/oarkflow/maps v0.0.0-20240406152114-fc5a94538f01 h1:2U3KpUUHKyKNcc9wR
 github.com/oarkflow/maps v0.0.0-20240406152114-fc5a94538f01/go.mod h1:ku/3mpezSm5g3rBuU2U3UPpzBhJ86SY/mhvvliTTWg4=
 github.com/oarkflow/metadata v0.0.64 h1:ql3xQeuNRfmFyJLkpSovyfJulyjt0LfNcDeDbn34c08=
 github.com/oarkflow/metadata v0.0.64/go.mod h1:u+1Nztcbp09kjjRzN4UaO9iu+e/TAkaYt4EMD2ElQIM=
-github.com/oarkflow/msgpack v0.0.1 h1:q7CvtT1/2TU+qoXgiQZ6BW4E9fAGOQ9bATWFFdFNZUI=
-github.com/oarkflow/msgpack v0.0.1/go.mod h1:LthukEYeLGz+NEYzN6voNUVHAiLR8A3HX2DM40O3QBg=
 github.com/oarkflow/pkg v0.1.47 h1:7RGZq+K6jT2Q3coqslXwCML2OpjgJO5RD6o9Um7ebio=
 github.com/oarkflow/pkg v0.1.47/go.mod h1:F5Ybpr9jRkvKBu4ZtFfaRbF0crXXIo5jeXGL0D5ivIU=
 github.com/oarkflow/protocol v0.0.16 h1:3qNn9gwoJOpdz+owyAmW4fNMpQplqHVIjzsWM4r0pcA=
@@ -140,8 +136,6 @@ github.com/tklauser/numcpus v0.6.1/go.mod h1:1XfjsgE2zo8GVw7POkMbHENHzVg3GzmoZ9f
 github.com/toorop/go-dkim v0.0.0-20201103131630-e1cd1a0a5208/go.mod h1:BzWtXXrXzZUvMacR0oF/fbDDgUPO8L36tDMmRAf14ns=
 github.com/toorop/go-dkim v0.0.0-20240103092955-90b7d1423f92 h1:flbMkdl6HxQkLs6DDhH1UkcnFpNBOu70391STjMS0O4=
 github.com/toorop/go-dkim v0.0.0-20240103092955-90b7d1423f92/go.mod h1:BzWtXXrXzZUvMacR0oF/fbDDgUPO8L36tDMmRAf14ns=
-github.com/vmihailenco/tagparser/v2 v2.0.0 h1:y09buUbR+b5aycVFQs/g70pqKVZNBmxwAhO7/IwNM9g=
-github.com/vmihailenco/tagparser/v2 v2.0.0/go.mod h1:Wri+At7QHww0WTrCBeu4J6bNtoV6mEfg5OIWRZA9qds=
 github.com/xhit/go-simple-mail/v2 v2.16.0 h1:ouGy/Ww4kuaqu2E2UrDw7SvLaziWTB60ICLkIkNVccA=
 github.com/xhit/go-simple-mail/v2 v2.16.0/go.mod h1:b7P5ygho6SYE+VIqpxA6QkYfv4teeyG4MKqB3utRu98=
 github.com/yusufpapurcu/wmi v1.2.4 h1:zFUKzehAFReQwLys1b/iSMl+JQGSCSjtVqQn9bBrPo0=

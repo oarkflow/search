@@ -118,7 +118,6 @@ func (r Hits[Schema]) Less(i, j int) bool { return r[i].Score > r[j].Score }
 
 type Config struct {
 	Key             string             `json:"key"`
-	Storage         string             `json:"storage"`
 	DefaultLanguage tokenizer.Language `json:"default_language"`
 	TokenizerConfig *tokenizer.Config
 	IndexKeys       []string        `json:"index_keys"`
@@ -134,7 +133,7 @@ type Config struct {
 
 type Engine[Schema SchemaProps] struct {
 	mutex           sync.RWMutex
-	documents       storage.Store[int64, Schema]
+	documentStorage storage.Store[int64, Schema]
 	indexes         maps.IMap[string, *Index]
 	indexKeys       []string
 	defaultLanguage tokenizer.Language
@@ -151,12 +150,7 @@ func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], erro
 	if c.SampleSize == 0 {
 		c.SampleSize = 20
 	}
-	switch c.Storage {
-	case "flydb":
-		return storage.NewFlyDB[int64, Schema](c.Path, c.Compress, c.SampleSize)
-	default:
-		return storage.NewMemDB[int64, Schema](c.SampleSize)
-	}
+	return storage.NewMemDB[int64, Schema](c.SampleSize)
 }
 
 func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
@@ -193,7 +187,7 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 	}
 	db := &Engine[Schema]{
 		key:             c.Key,
-		documents:       store,
+		documentStorage: store,
 		indexes:         maps.New[string, *Index](),
 		defaultLanguage: c.DefaultLanguage,
 		tokenizerConfig: c.TokenizerConfig,
@@ -209,13 +203,8 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 	return db, nil
 }
 
-func (db *Engine[Schema]) Compress() error {
-	/*err := lib.CompressFolder(db.path, db.path+".zip")
-	if err != nil {
-		return err
-	}
-	return os.RemoveAll(db.path)*/
-	return nil
+func (db *Engine[Schema]) SetStorage(store storage.Store[int64, Schema]) {
+	db.documentStorage = store
 }
 
 func (db *Engine[Schema]) Metadata() map[string]any {
@@ -223,7 +212,7 @@ func (db *Engine[Schema]) Metadata() map[string]any {
 		"key":               db.key,
 		"index_keys":        db.indexKeys,
 		"language":          db.defaultLanguage,
-		"storage":           db.cfg.Storage,
+		"documentStorage":   db.documentStorage.Name(),
 		"fields_to_store":   db.cfg.FieldsToStore,
 		"fields_to_exclude": db.cfg.FieldsToExclude,
 	}
@@ -231,19 +220,19 @@ func (db *Engine[Schema]) Metadata() map[string]any {
 }
 
 func (db *Engine[Schema]) GetDocument(id int64) (Schema, bool) {
-	return db.documents.Get(id)
+	return db.documentStorage.Get(id)
 }
 
 func (db *Engine[Schema]) DelDocument(id int64) error {
-	return db.documents.Del(id)
+	return db.documentStorage.Del(id)
 }
 
 func (db *Engine[Schema]) SetDocument(id int64, doc Schema) error {
-	return db.documents.Set(id, doc)
+	return db.documentStorage.Set(id, doc)
 }
 
 func (db *Engine[Schema]) DocumentLen() int {
-	return int(db.documents.Len())
+	return int(db.documentStorage.Len())
 }
 
 func (db *Engine[Schema]) buildIndexes() {
@@ -413,7 +402,7 @@ func (db *Engine[Schema]) Check(data Schema, filter []*filters.Filter) bool {
 
 func (db *Engine[Schema]) Sample(params storage.SampleParams) (Result[Schema], error) {
 	results := make(Hits[Schema], 0)
-	sampleDocs, err := db.documents.Sample(params)
+	sampleDocs, err := db.documentStorage.Sample(params)
 	if err != nil {
 		return Result[Schema]{}, err
 	}

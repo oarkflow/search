@@ -27,6 +27,10 @@ func (m *MemDB[K, V]) Set(key K, value V) error {
 	return nil
 }
 
+func (m *MemDB[K, V]) Name() string {
+	return "memdb"
+}
+
 func (m *MemDB[K, V]) Get(key K) (V, bool) {
 	return m.client.Get(key)
 }

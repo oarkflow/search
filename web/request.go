@@ -19,7 +19,6 @@ type Query struct {
 
 type Options struct {
 	Key             string   `json:"key"`
-	Storage         string   `json:"storage"`
 	FieldsToIndex   []string `json:"fields_to_index"`
 	FieldsToStore   []string `json:"fields_to_store"`
 	FieldsToExclude []string `json:"fields_to_exclude"`
@@ -35,7 +34,6 @@ type Database struct {
 	IndexKey        string   `json:"index_key"`
 	Password        string   `json:"password"`
 	Host            string   `json:"host"`
-	Storage         string   `json:"storage"`
 	SslMode         string   `json:"ssl_mode"`
 	Username        string   `json:"username"`
 	FieldsToIndex   []string `json:"fields_to_index"`

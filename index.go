@@ -1,6 +1,7 @@
 package search
 
 import (
+	"github.com/oarkflow/search/hash"
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/radix"
 )
@@ -20,22 +21,22 @@ type IndexParams struct {
 	DocsCount int
 }
 
-type Index struct {
-	data             *radix.Trie
+type Index[T hash.Hashable] struct {
+	data             *radix.Trie[T]
 	avgFieldLength   float64
-	fieldLengths     map[int64]int
+	fieldLengths     map[T]int
 	tokenOccurrences map[string]int
 }
 
-func NewIndex() *Index {
-	return &Index{
-		data:             radix.New(),
-		fieldLengths:     make(map[int64]int),
+func NewIndex[T hash.Hashable]() *Index[T] {
+	return &Index[T]{
+		data:             radix.New[T](),
+		fieldLengths:     make(map[T]int),
 		tokenOccurrences: make(map[string]int),
 	}
 }
 
-func (idx *Index) Insert(id int64, tokens map[string]int, docsCount int) {
+func (idx *Index[T]) Insert(id T, tokens map[string]int, docsCount int) {
 	totalTokens := len(tokens)
 	for token, count := range tokens {
 		tokenFrequency := float64(count) / float64(totalTokens)
@@ -46,7 +47,7 @@ func (idx *Index) Insert(id int64, tokens map[string]int, docsCount int) {
 	idx.fieldLengths[id] = totalTokens
 }
 
-func (idx *Index) Delete(id int64, tokens map[string]int, docsCount int) {
+func (idx *Index[T]) Delete(id T, tokens map[string]int, docsCount int) {
 	for token := range tokens {
 		idx.data.Delete(id, token)
 		idx.tokenOccurrences[token]--
@@ -59,9 +60,9 @@ func (idx *Index) Delete(id int64, tokens map[string]int, docsCount int) {
 	delete(idx.fieldLengths, id)
 }
 
-func (idx *Index) Find(params *FindParams) map[int64]float64 {
-	idScores := make(map[int64]float64)
-	idTokensCount := make(map[int64]int)
+func (idx *Index[T]) Find(params *FindParams) map[T]float64 {
+	idScores := make(map[T]float64)
+	idTokensCount := make(map[T]int)
 	for token := range params.Tokens {
 		infos := idx.data.Find(token, params.Tolerance, params.Exact)
 		for id, frequency := range infos {

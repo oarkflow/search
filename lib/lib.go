@@ -2,6 +2,8 @@ package lib
 
 import (
 	"math"
+
+	"github.com/oarkflow/search/hash"
 )
 
 func BM25(tf float64, matchingDocsCount int, fieldLength int, avgFieldLength float64, docsCount int, k float64, b float64, d float64) float64 {
@@ -186,7 +188,7 @@ func ToLower(b string) string {
 	return FromByte(res)
 }
 
-func Unique[T comparable](slice []T) (result []T) {
+func Unique[T hash.Hashable](slice []T) (result []T) {
 	seen := make(map[T]struct{})
 	for _, v := range slice {
 		if _, ok := seen[v]; !ok {

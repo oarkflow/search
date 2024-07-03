@@ -1,23 +1,24 @@
 package radix
 
 import (
+	"github.com/oarkflow/search/hash"
 	"github.com/oarkflow/search/lib"
 )
 
-type Trie struct {
-	root   *node
+type Trie[T hash.Hashable] struct {
+	root   *node[T]
 	length int
 }
 
-func New() *Trie {
-	return &Trie{root: newNode(nil)}
+func New[T hash.Hashable]() *Trie[T] {
+	return &Trie[T]{root: newNode[T](nil)}
 }
 
-func (t *Trie) Len() int {
+func (t *Trie[T]) Len() int {
 	return t.length
 }
 
-func (t *Trie) Insert(id int64, token string, freq float64) {
+func (t *Trie[T]) Insert(id T, token string, freq float64) {
 	word := []rune(token)
 	currNode := t.root
 
@@ -37,7 +38,7 @@ func (t *Trie) Insert(id int64, token string, freq float64) {
 			}
 
 			if commonPrefixLength == wordLength && commonPrefixLength < subwordLength {
-				n := newNode(word[i:])
+				n := newNode[T](word[i:])
 				n.addData(id, freq)
 
 				currChild.subword = currChild.subword[commonPrefixLength:]
@@ -49,10 +50,10 @@ func (t *Trie) Insert(id int64, token string, freq float64) {
 			}
 
 			if commonPrefixLength < wordLength && commonPrefixLength < subwordLength {
-				n := newNode(word[i+commonPrefixLength:])
+				n := newNode[T](word[i+commonPrefixLength:])
 				n.addData(id, freq)
 
-				inBetweenNode := newNode(word[i : i+commonPrefixLength])
+				inBetweenNode := newNode[T](word[i : i+commonPrefixLength])
 				currNode.addChild(inBetweenNode)
 
 				currChild.subword = currChild.subword[commonPrefixLength:]
@@ -66,7 +67,7 @@ func (t *Trie) Insert(id int64, token string, freq float64) {
 			i += subwordLength
 			currNode = currChild
 		} else {
-			n := newNode(word[i:])
+			n := newNode[T](word[i:])
 			n.addData(id, freq)
 
 			currNode.addChild(n)
@@ -74,10 +75,9 @@ func (t *Trie) Insert(id int64, token string, freq float64) {
 			return
 		}
 	}
-	currNode.putNode()
 }
 
-func (t *Trie) Delete(id int64, token string) {
+func (t *Trie[T]) Delete(id T, token string) {
 	word := []rune(token)
 	currNode := t.root
 
@@ -116,10 +116,9 @@ func (t *Trie) Delete(id int64, token string) {
 			return
 		}
 	}
-	currNode.putNode()
 }
 
-func (t *Trie) Find(token string, tolerance int, exact bool) map[int64]float64 {
+func (t *Trie[T]) Find(token string, tolerance int, exact bool) map[T]float64 {
 	term := []rune(token)
 	currNode := t.root
 	currNodeWord := currNode.subword

@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"slices"
 	"sort"
-	"strconv"
 	"sync"
 
 	"github.com/oarkflow/gopool"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/oarkflow/maps"
 
+	"github.com/oarkflow/search/hash"
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/storage"
 	"github.com/oarkflow/search/tokenizer"
@@ -37,8 +37,8 @@ type Mode string
 
 type SchemaProps any
 
-type Record[Schema SchemaProps] struct {
-	Id   int64  `json:"id"`
+type Record[Schema SchemaProps, ID hash.Hashable] struct {
+	Id   ID     `json:"id"`
 	Data Schema `json:"data"`
 }
 
@@ -53,14 +53,14 @@ type InsertBatchParams[Schema SchemaProps] struct {
 	Language  tokenizer.Language
 }
 
-type UpdateParams[Schema SchemaProps] struct {
-	Id       int64
+type UpdateParams[Schema SchemaProps, ID hash.Hashable] struct {
+	Id       ID
 	Document Schema
 	Language tokenizer.Language
 }
 
-type DeleteParams[Schema SchemaProps] struct {
-	Id       int64
+type DeleteParams[Schema SchemaProps, ID hash.Hashable] struct {
+	Id       ID
 	Language tokenizer.Language
 }
 
@@ -95,26 +95,26 @@ type BM25Params struct {
 	D float64 `json:"d"`
 }
 
-type Result[Schema SchemaProps] struct {
-	Hits    Hits[Schema] `json:"hits"`
-	Count   int          `json:"count"`
-	Total   int          `json:"total"`
-	Message string       `json:"message"`
+type Result[Schema SchemaProps, ID hash.Hashable] struct {
+	Hits    Hits[Schema, ID] `json:"hits"`
+	Count   int              `json:"count"`
+	Total   int              `json:"total"`
+	Message string           `json:"message"`
 }
 
-type Hit[Schema SchemaProps] struct {
-	Id    int64   `json:"id"`
+type Hit[Schema SchemaProps, ID hash.Hashable] struct {
+	Id    ID      `json:"id"`
 	Data  Schema  `json:"data"`
 	Score float64 `json:"score"`
 }
 
-type Hits[Schema SchemaProps] []Hit[Schema]
+type Hits[Schema SchemaProps, ID hash.Hashable] []Hit[Schema, ID]
 
-func (r Hits[Schema]) Len() int { return len(r) }
+func (r Hits[Schema, ID]) Len() int { return len(r) }
 
-func (r Hits[Schema]) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
+func (r Hits[Schema, ID]) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
 
-func (r Hits[Schema]) Less(i, j int) bool { return r[i].Score > r[j].Score }
+func (r Hits[Schema, ID]) Less(i, j int) bool { return r[i].Score > r[j].Score }
 
 type Config struct {
 	Key             string             `json:"key"`
@@ -131,29 +131,29 @@ type Config struct {
 	SampleSize      int             `json:"sample_size"`
 }
 
-type Engine[Schema SchemaProps] struct {
+type Engine[Schema SchemaProps, ID hash.Hashable] struct {
 	mutex           sync.RWMutex
-	documentStorage storage.Store[int64, Schema]
-	indexes         maps.IMap[string, *Index]
+	documentStorage storage.Store[ID, Schema]
+	indexes         maps.IMap[string, *Index[ID]]
 	indexKeys       []string
 	defaultLanguage tokenizer.Language
 	tokenizerConfig *tokenizer.Config
 	rules           map[string]bool
-	cache           maps.IMap[uint64, map[int64]float64]
+	cache           maps.IMap[uint64, map[ID]float64]
 	key             string
 	sliceField      string
 	path            string
 	cfg             *Config
 }
 
-func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], error) {
+func getStore[Schema SchemaProps, ID hash.Hashable](c *Config) (storage.Store[ID, Schema], error) {
 	if c.SampleSize == 0 {
 		c.SampleSize = 20
 	}
-	return storage.NewMemDB[int64, Schema](c.SampleSize)
+	return storage.NewMemDB[ID, Schema](c.SampleSize)
 }
 
-func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
+func New[Schema SchemaProps, ID hash.Hashable](cfg ...*Config) (*Engine[Schema, ID], error) {
 	c := &Config{}
 	if len(cfg) > 0 {
 		c = cfg[0]
@@ -181,14 +181,14 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 			return nil, err
 		}
 	}
-	store, err := getStore[Schema](c)
+	store, err := getStore[Schema, ID](c)
 	if err != nil {
 		return nil, err
 	}
-	db := &Engine[Schema]{
+	db := &Engine[Schema, ID]{
 		key:             c.Key,
 		documentStorage: store,
-		indexes:         maps.New[string, *Index](),
+		indexes:         maps.New[string, *Index[ID]](),
 		defaultLanguage: c.DefaultLanguage,
 		tokenizerConfig: c.TokenizerConfig,
 		rules:           c.Rules,
@@ -203,11 +203,11 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 	return db, nil
 }
 
-func (db *Engine[Schema]) SetStorage(store storage.Store[int64, Schema]) {
+func (db *Engine[Schema, ID]) SetStorage(store storage.Store[ID, Schema]) {
 	db.documentStorage = store
 }
 
-func (db *Engine[Schema]) Metadata() map[string]any {
+func (db *Engine[Schema, ID]) Metadata() map[string]any {
 	cfg := map[string]any{
 		"key":               db.key,
 		"index_keys":        db.indexKeys,
@@ -219,30 +219,30 @@ func (db *Engine[Schema]) Metadata() map[string]any {
 	return cfg
 }
 
-func (db *Engine[Schema]) GetDocument(id int64) (Schema, bool) {
+func (db *Engine[Schema, ID]) GetDocument(id ID) (Schema, bool) {
 	return db.documentStorage.Get(id)
 }
 
-func (db *Engine[Schema]) DelDocument(id int64) error {
+func (db *Engine[Schema, ID]) DelDocument(id ID) error {
 	return db.documentStorage.Del(id)
 }
 
-func (db *Engine[Schema]) SetDocument(id int64, doc Schema) error {
+func (db *Engine[Schema, ID]) SetDocument(id ID, doc Schema) error {
 	return db.documentStorage.Set(id, doc)
 }
 
-func (db *Engine[Schema]) DocumentLen() int {
+func (db *Engine[Schema, ID]) DocumentLen() int {
 	return int(db.documentStorage.Len())
 }
 
-func (db *Engine[Schema]) buildIndexes() {
+func (db *Engine[Schema, ID]) buildIndexes() {
 	var s Schema
 	for key := range db.flattenSchema(s) {
 		db.addIndex(key)
 	}
 }
 
-func (db *Engine[Schema]) Insert(doc Schema, lang ...tokenizer.Language) (Record[Schema], error) {
+func (db *Engine[Schema, ID]) Insert(doc Schema, lang ...tokenizer.Language) (Record[Schema, ID], error) {
 	if len(db.cfg.FieldsToStore) > 0 {
 		switch doc := any(doc).(type) {
 		case map[string]any:
@@ -289,25 +289,32 @@ func (db *Engine[Schema]) Insert(doc Schema, lang ...tokenizer.Language) (Record
 	if len(lang) > 0 {
 		language = lang[0]
 	}
-	id := xid.New().Int64()
+	var id ID
+	switch any(id).(type) {
+	case int64:
+		id = any(xid.New().Int64()).(ID)
+	case string:
+		id = any(xid.New().String()).(ID)
+	}
+	// id := xid.New().Int64()
 	document := db.flattenSchema(doc)
 
 	if language == "" {
 		language = db.defaultLanguage
 
 	} else if !tokenizer.IsSupportedLanguage(language) {
-		return Record[Schema]{}, fmt.Errorf("not supported language")
+		return Record[Schema, ID]{}, fmt.Errorf("not supported language")
 	}
 
 	err := db.SetDocument(id, doc)
 	if err != nil {
-		return Record[Schema]{}, err
+		return Record[Schema, ID]{}, err
 	}
 	db.indexDocument(id, document, language)
-	return Record[Schema]{Id: id, Data: doc}, nil
+	return Record[Schema, ID]{Id: id, Data: doc}, nil
 }
 
-func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker, batchSize int, lang ...tokenizer.Language) []error {
+func (db *Engine[Schema, ID]) InsertWithPool(docs []Schema, noOfWorker, batchSize int, lang ...tokenizer.Language) []error {
 	docLen := len(docs)
 	if docLen == 0 {
 		return nil
@@ -343,7 +350,7 @@ func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker, batchSize in
 	return errs
 }
 
-func (db *Engine[Schema]) Update(params *UpdateParams[Schema]) (Record[Schema], error) {
+func (db *Engine[Schema, ID]) Update(params *UpdateParams[Schema, ID]) (Record[Schema, ID], error) {
 	document := db.flattenSchema(params.Document)
 
 	language := params.Language
@@ -351,24 +358,24 @@ func (db *Engine[Schema]) Update(params *UpdateParams[Schema]) (Record[Schema], 
 		language = db.defaultLanguage
 
 	} else if !tokenizer.IsSupportedLanguage(language) {
-		return Record[Schema]{}, fmt.Errorf("not supported language")
+		return Record[Schema, ID]{}, fmt.Errorf("not supported language")
 	}
 
 	oldDocument, ok := db.GetDocument(params.Id)
 	if !ok {
-		return Record[Schema]{}, fmt.Errorf("document not found")
+		return Record[Schema, ID]{}, fmt.Errorf("document not found")
 	}
 	db.indexDocument(params.Id, document, language)
 	document = db.flattenSchema(oldDocument)
 	db.deindexDocument(params.Id, document, language)
 	err := db.SetDocument(params.Id, params.Document)
 	if err != nil {
-		return Record[Schema]{}, err
+		return Record[Schema, ID]{}, err
 	}
-	return Record[Schema]{Id: params.Id, Data: params.Document}, nil
+	return Record[Schema, ID]{Id: params.Id, Data: params.Document}, nil
 }
 
-func (db *Engine[Schema]) Delete(params *DeleteParams[Schema]) error {
+func (db *Engine[Schema, ID]) Delete(params *DeleteParams[Schema, ID]) error {
 	language := params.Language
 	if language == "" {
 		language = db.defaultLanguage
@@ -386,29 +393,28 @@ func (db *Engine[Schema]) Delete(params *DeleteParams[Schema]) error {
 	return db.DelDocument(params.Id)
 }
 
-func (db *Engine[Schema]) ClearCache() {
+func (db *Engine[Schema, ID]) ClearCache() {
 	db.cache = nil
 }
 
 // CheckCondition function checks if a key-value map exists in any type of data
-func (db *Engine[Schema]) CheckCondition(data Schema, filter *filters.Sequence) bool {
+func (db *Engine[Schema, ID]) CheckCondition(data Schema, filter *filters.Sequence) bool {
 	return filter.Match(data)
 }
 
 // Check function checks if a key-value map exists in any type of data
-func (db *Engine[Schema]) Check(data Schema, filter []*filters.Filter) bool {
+func (db *Engine[Schema, ID]) Check(data Schema, filter []*filters.Filter) bool {
 	return filters.MatchGroup(data, &filters.FilterGroup{Operator: filters.AND, Filters: filter})
 }
 
-func (db *Engine[Schema]) Sample(params storage.SampleParams) (Result[Schema], error) {
-	results := make(Hits[Schema], 0)
+func (db *Engine[Schema, ID]) Sample(params storage.SampleParams) (Result[Schema, ID], error) {
+	results := make(Hits[Schema, ID], 0)
 	sampleDocs, err := db.documentStorage.Sample(params)
 	if err != nil {
-		return Result[Schema]{}, err
+		return Result[Schema, ID]{}, err
 	}
 	for k, doc := range sampleDocs {
-		parseInt, _ := strconv.ParseInt(k, 10, 64)
-		results = append(results, Hit[Schema]{Id: parseInt, Data: doc, Score: 0})
+		results = append(results, Hit[Schema, ID]{Id: k, Data: doc, Score: 0})
 	}
 	return db.prepareResult(results, &Params{Paginate: false})
 }
@@ -467,9 +473,9 @@ func removeFilter(filters []*filters.Filter, filterToRemove *filters.Filter) []*
 }
 
 // Search - uses params to search
-func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
+func (db *Engine[Schema, ID]) Search(params *Params) (Result[Schema, ID], error) {
 	if db.cache == nil {
-		db.cache = maps.New[uint64, map[int64]float64]()
+		db.cache = maps.New[uint64, map[ID]float64]()
 	}
 	cachedKey := params.ToInt64()
 	if cachedKey != 0 {
@@ -496,13 +502,13 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	}
 	allIdScores, err := db.findWithParams(params)
 	if err != nil {
-		return Result[Schema]{}, err
+		return Result[Schema, ID]{}, err
 	}
 	if len(allIdScores) == 0 && params.Query == "" {
 		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Sequence: filter, Filters: params.Filters})
 	}
-	results := make(Hits[Schema], 0)
-	cache := make(map[int64]float64)
+	results := make(Hits[Schema, ID], 0)
+	cache := make(map[ID]float64)
 	defer func() {
 		results = nil
 		cache = nil
@@ -514,17 +520,17 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 		}
 		if len(params.Filters) == 0 && params.Condition == "" {
 			cache[id] = score
-			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
+			results = append(results, Hit[Schema, ID]{Id: id, Data: doc, Score: score})
 			continue
 		}
 		if params.Condition != "" {
 			if db.CheckCondition(doc, filter) {
 				cache[id] = score
-				results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
+				results = append(results, Hit[Schema, ID]{Id: id, Data: doc, Score: score})
 			}
 		} else if db.Check(doc, params.Filters) {
 			cache[id] = score
-			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
+			results = append(results, Hit[Schema, ID]{Id: id, Data: doc, Score: score})
 		}
 	}
 	if cachedKey != 0 && len(cache) > 0 {
@@ -533,13 +539,13 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	return db.prepareResult(results, params)
 }
 
-func (db *Engine[Schema]) addIndexes(keys []string) {
+func (db *Engine[Schema, ID]) addIndexes(keys []string) {
 	for _, key := range keys {
 		db.addIndex(key)
 	}
 }
 
-func (db *Engine[Schema]) sampleWithFilters(params storage.SampleParams) (Result[Schema], error) {
+func (db *Engine[Schema, ID]) sampleWithFilters(params storage.SampleParams) (Result[Schema, ID], error) {
 	rs, err := db.Sample(params)
 	if err != nil {
 		return rs, err
@@ -550,13 +556,13 @@ func (db *Engine[Schema]) sampleWithFilters(params storage.SampleParams) (Result
 	return rs, nil
 }
 
-func (db *Engine[Schema]) addIndex(key string) {
-	db.indexes.Set(key, NewIndex())
+func (db *Engine[Schema, ID]) addIndex(key string) {
+	db.indexes.Set(key, NewIndex[ID]())
 	db.indexKeys = lib.Unique(append(db.indexKeys, key))
 }
 
-func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, error) {
-	allIdScores := make(map[int64]float64)
+func (db *Engine[Schema, ID]) findWithParams(params *Params) (map[ID]float64, error) {
+	allIdScores := make(map[ID]float64)
 
 	properties := params.Properties
 	if len(params.Properties) == 0 {
@@ -600,32 +606,32 @@ func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, err
 	return allIdScores, nil
 }
 
-func (db *Engine[Schema]) prepareResult(results Hits[Schema], params *Params) (Result[Schema], error) {
+func (db *Engine[Schema, ID]) prepareResult(results Hits[Schema, ID], params *Params) (Result[Schema, ID], error) {
 	sort.Sort(results)
 	if !params.Paginate {
-		return Result[Schema]{Hits: results, Count: len(results), Total: db.DocumentLen()}, nil
+		return Result[Schema, ID]{Hits: results, Count: len(results), Total: db.DocumentLen()}, nil
 	}
 	if params.Limit == 0 {
 		params.Limit = 20
 	}
 	start, stop := lib.Paginate(params.Offset, params.Limit, len(results))
-	return Result[Schema]{Hits: results[start:stop], Count: len(results), Total: db.DocumentLen()}, nil
+	return Result[Schema, ID]{Hits: results[start:stop], Count: len(results), Total: db.DocumentLen()}, nil
 }
 
-func (db *Engine[Schema]) getDocuments(scores map[int64]float64) Hits[Schema] {
-	results := make(Hits[Schema], 0)
+func (db *Engine[Schema, ID]) getDocuments(scores map[ID]float64) Hits[Schema, ID] {
+	results := make(Hits[Schema, ID], 0)
 	for id, score := range scores {
 		if doc, ok := db.GetDocument(id); ok {
-			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
+			results = append(results, Hit[Schema, ID]{Id: id, Data: doc, Score: score})
 		}
 	}
 	return results
 }
 
-func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, language tokenizer.Language) {
+func (db *Engine[Schema, ID]) indexDocument(id ID, document map[string]any, language tokenizer.Language) {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
-	db.indexes.ForEach(func(propName string, index *Index) bool {
+	db.indexes.ForEach(func(propName string, index *Index[ID]) bool {
 		text := lib.ToString(document[propName])
 		tokens := tokensPool.Get()
 		clear(tokens)
@@ -641,10 +647,10 @@ func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, langu
 	})
 }
 
-func (db *Engine[Schema]) deindexDocument(id int64, document map[string]any, language tokenizer.Language) {
+func (db *Engine[Schema, ID]) deindexDocument(id ID, document map[string]any, language tokenizer.Language) {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
-	db.indexes.ForEach(func(propName string, index *Index) bool {
+	db.indexes.ForEach(func(propName string, index *Index[ID]) bool {
 		tokens := tokensPool.Get()
 		clear(tokens)
 		tokenizer.Tokenize(tokenizer.TokenizeParams{
@@ -659,7 +665,7 @@ func (db *Engine[Schema]) deindexDocument(id int64, document map[string]any, lan
 	})
 }
 
-func (db *Engine[Schema]) getFieldsFromMap(obj any) map[string]any {
+func (db *Engine[Schema, ID]) getFieldsFromMap(obj any) map[string]any {
 	m, ok := obj.(map[string]any)
 	if !ok {
 		return map[string]any{}
@@ -681,7 +687,7 @@ func (db *Engine[Schema]) getFieldsFromMap(obj any) map[string]any {
 	return fields
 }
 
-func (db *Engine[Schema]) getFieldsFromStruct(obj any, prefix ...string) map[string]any {
+func (db *Engine[Schema, ID]) getFieldsFromStruct(obj any, prefix ...string) map[string]any {
 	fields := make(map[string]any)
 	t := reflect.TypeOf(obj)
 	v := reflect.ValueOf(obj)
@@ -721,7 +727,7 @@ func (db *Engine[Schema]) getFieldsFromStruct(obj any, prefix ...string) map[str
 	return fields
 }
 
-func (db *Engine[Schema]) flattenSchema(obj any, prefix ...string) map[string]any {
+func (db *Engine[Schema, ID]) flattenSchema(obj any, prefix ...string) map[string]any {
 	if obj == nil {
 		return nil
 	}

@@ -3,17 +3,21 @@ package radix
 import (
 	"maps"
 
+	"github.com/oarkflow/search/hash"
 	"github.com/oarkflow/search/lib"
 )
 
-type node struct {
+type node[T hash.Hashable] struct {
 	subword  []rune
-	children map[rune]*node
-	infos    map[int64]float64
+	children map[rune]*node[T]
+	infos    map[T]float64
 }
 
-func newNode(subword []rune) *node {
-	n := nodePool.Get()
+func newNode[T hash.Hashable](subword []rune) *node[T] {
+	n := &node[T]{
+		infos:    make(map[T]float64),
+		children: make(map[rune]*node[T]),
+	}
 	n.subword = subword
 	// Clear the maps (or reinitialize if needed)
 	for k := range n.children {
@@ -25,36 +29,32 @@ func newNode(subword []rune) *node {
 	return n
 }
 
-func (n *node) putNode() {
-	nodePool.Put(n)
-}
-
-func (n *node) addData(id int64, frequency float64) {
+func (n *node[T]) addData(id T, frequency float64) {
 	n.infos[id] = frequency
 }
 
-func (n *node) addChild(child *node) {
+func (n *node[T]) addChild(child *node[T]) {
 	if len(child.subword) > 0 {
 		n.children[child.subword[0]] = child
 	}
 }
 
-func (n *node) removeChild(child *node) {
+func (n *node[T]) removeChild(child *node[T]) {
 	if len(child.subword) > 0 {
 		delete(n.children, child.subword[0])
 	}
 }
 
-func (n *node) removeData(id int64) {
+func (n *node[T]) removeData(id T) {
 	delete(n.infos, id)
 }
 
-func (n *node) findData(word []rune, term []rune, tolerance int, exact bool) map[int64]float64 {
-	results := make(map[int64]float64)
+func (n *node[T]) findData(word []rune, term []rune, tolerance int, exact bool) map[T]float64 {
+	results := make(map[T]float64)
 	stack := [][2]interface{}{{n, word}}
 
 	for len(stack) > 0 {
-		currNode, currWord := stack[len(stack)-1][0].(*node), stack[len(stack)-1][1].([]rune)
+		currNode, currWord := stack[len(stack)-1][0].(*node[T]), stack[len(stack)-1][1].([]rune)
 		stack = stack[:len(stack)-1]
 
 		if _, eq := lib.CommonPrefix(currWord, term); !eq && exact {
@@ -73,11 +73,10 @@ func (n *node) findData(word []rune, term []rune, tolerance int, exact bool) map
 			stack = append(stack, [2]interface{}{child, append(currWord, child.subword...)})
 		}
 	}
-	n.putNode()
 	return results
 }
 
-func mergeNodes(a *node, b *node) {
+func mergeNodes[T hash.Hashable](a *node[T], b *node[T]) {
 	a.subword = append(a.subword, b.subword...)
 	a.infos = b.infos
 	a.children = b.children

@@ -10,7 +10,7 @@ import (
 
 func main() {
 	icds := lib.ReadFileAsMap("sample.json")
-	db, _ := search.New[map[string]any]()
+	db, _ := search.New[map[string]any, int64]()
 	var startTime = time.Now()
 	before := lib.Stats()
 	db.InsertWithPool(icds, 3, 100)

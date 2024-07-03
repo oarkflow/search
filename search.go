@@ -2,6 +2,7 @@ package search
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -293,10 +294,13 @@ func (db *Engine[Schema, ID]) Insert(doc Schema, lang ...tokenizer.Language) (Re
 	switch any(id).(type) {
 	case int64:
 		id = any(xid.New().Int64()).(ID)
+	case uint64:
+		id = any(uint64(xid.New().Int64())).(ID)
 	case string:
 		id = any(xid.New().String()).(ID)
+	default:
+		log.Fatal().Err(errors.New("Only supports int64, uint64 or string"))
 	}
-	// id := xid.New().Int64()
 	document := db.flattenSchema(doc)
 
 	if language == "" {

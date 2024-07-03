@@ -10,10 +10,13 @@ import (
 
 func main() {
 	icds := lib.ReadFileAsMap("sample.json")
-	db, _ := search.New[map[string]any, int64]()
+	db, _ := search.New[map[string]any, int8]()
 	var startTime = time.Now()
 	before := lib.Stats()
-	db.InsertWithPool(icds, 3, 100)
+	errs := db.InsertWithPool(icds, 3, 100)
+	if len(errs) > 0 {
+		panic(errs[0])
+	}
 	after := lib.Stats()
 	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	fmt.Println("Total Documents", db.DocumentLen())

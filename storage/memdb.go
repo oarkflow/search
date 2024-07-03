@@ -1,7 +1,10 @@
 package storage
 
 import (
+	"errors"
+
 	"github.com/oarkflow/filters"
+	"github.com/oarkflow/log"
 	"github.com/oarkflow/maps"
 
 	"github.com/oarkflow/search/hash"
@@ -65,9 +68,14 @@ func (m *MemDB[K, V]) Sample(params SampleParams) (map[K]V, error) {
 			case int64:
 				tmp := any(k).(K)
 				value[tmp] = val
+			case uint64:
+				tmp := any(k).(K)
+				value[tmp] = val
 			case string:
 				tmp := any(k).(K)
 				value[tmp] = val
+			default:
+				log.Fatal().Err(errors.New("Only supports int64, uint64 or string"))
 			}
 
 			count++

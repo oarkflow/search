@@ -52,27 +52,25 @@ func (m *MemDB[K, V]) Sample(params SampleParams) (map[string]V, error) {
 	value := make(map[string]V)
 	count := 0
 	m.client.ForEach(func(key K, val V) bool {
-		if count < sz {
-			if params.Sequence != nil {
-				if params.Sequence.Match(val) {
-					tmp := fmt.Sprint(key)
-					value[tmp] = val
-					count++
-				}
-			} else if params.Filters != nil {
-				if filters.MatchGroup(val, &filters.FilterGroup{Operator: filters.AND, Filters: params.Filters}) {
-					tmp := fmt.Sprint(key)
-					value[tmp] = val
-					count++
-				}
-			} else {
-				tmp := fmt.Sprint(key)
-				value[tmp] = val
-				count++
-			}
-			return true
+		if count >= sz {
+			return false
 		}
-		return false
+		matched := false
+		if params.Sequence == nil && params.Filters == nil {
+			matched = true
+		} else if params.Sequence != nil {
+			if params.Sequence.Match(val) {
+				matched = true
+			}
+		} else if filters.MatchGroup(val, &filters.FilterGroup{Operator: filters.AND, Filters: params.Filters}) {
+			matched = true
+		}
+		if matched {
+			tmp := fmt.Sprint(key)
+			value[tmp] = val
+			count++
+		}
+		return true
 	})
 	return value, nil
 }

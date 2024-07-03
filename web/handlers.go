@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -12,7 +13,9 @@ import (
 	"github.com/oarkflow/frame/middlewares/server/monitor"
 	"github.com/oarkflow/frame/pkg/protocol/consts"
 	"github.com/oarkflow/frame/server"
+	"github.com/oarkflow/log"
 	"github.com/oarkflow/metadata"
+	"github.com/oarkflow/sio"
 
 	"github.com/oarkflow/filters"
 
@@ -282,6 +285,14 @@ func (f *FulltextController) IndexFromDatabase(_ context.Context, ctx *frame.Con
 }
 
 func SearchRoutes(route route.IRouter) route.IRouter {
+	wsServer := sio.New(sio.Config{
+		CheckOrigin: func(r *frame.Context) bool {
+			return true
+		},
+		EnableCompression: true,
+	})
+	SioEvents(wsServer)
+	wsServer.ShutdownWithSignal()
 	root := "./dist"
 	// Use runtime.Caller to get information about the current file
 	_, file, _, ok := runtime.Caller(0)
@@ -295,6 +306,9 @@ func SearchRoutes(route route.IRouter) route.IRouter {
 		Root:       root,
 		IndexNames: []string{"index.html"},
 		Compress:   true,
+	})
+	route.GET("/ws", func(c context.Context, ctx *frame.Context) {
+		wsServer.Handle(ctx)
 	})
 	route.POST("/new", controller.NewEngine)
 	route.GET("/types", controller.IndexTypes)
@@ -324,4 +338,47 @@ func StartServer(addr string, routePrefix ...string) {
 	srv.GET("/monitor", monitor.New())
 	SearchRoutes(srv.Group(prefix))
 	srv.Spin()
+}
+
+func SioEvents(server *sio.Server) {
+	server.OnConnect(func(socket *sio.Socket) error {
+		userID := socket.Ctx.Param("user_id")
+		socket.Join("__user_id:" + userID)
+		return nil
+	})
+	server.OnDisconnect(func(socket *sio.Socket) error {
+		log.Warn().Str("id", socket.ID()).Msg("disconnected")
+		return nil
+	})
+	server.OnError(func(socket *sio.Socket, err error) {
+		fmt.Println("Error", err.Error())
+	})
+	server.On("request:room-join", func(socket *sio.Socket, data []byte) {
+		var d map[string]any
+		err := json.Unmarshal(data, &d)
+		if err == nil {
+			room := d["room_id"].(string)
+			socket.Join(room)
+			for id, _ := range server.RoomSocketList(room) {
+				if socket.ID() != id {
+					socket.Emit("action:peer-add", map[string]any{
+						"peer_id": id,
+						"room_id": room,
+					})
+				}
+			}
+			socket.BroadcastExcept([]string{socket.ID()}, "action:peer-add", map[string]any{
+				"peer_id": socket.ID(),
+				"room_id": room,
+			})
+		}
+	})
+	server.On("request:room-leave", func(socket *sio.Socket, data []byte) {
+		room := string(data)
+		socket.Leave(room)
+	})
+}
+
+func OnContentChange() {
+
 }

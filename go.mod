@@ -9,6 +9,7 @@ require (
 	github.com/oarkflow/log v1.0.79
 	github.com/oarkflow/maps v0.0.0-20240406152114-fc5a94538f01
 	github.com/oarkflow/metadata v0.0.64
+	github.com/oarkflow/sio v0.0.7
 	github.com/oarkflow/squealx v0.0.19
 	github.com/oarkflow/xid v1.2.5
 	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8
@@ -34,7 +35,7 @@ require (
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/microsoft/go-mssqldb v1.7.2 // indirect
-	github.com/nyaruka/phonenumbers v1.3.5 // indirect
+	github.com/nyaruka/phonenumbers v1.3.6 // indirect
 	github.com/oarkflow/convert v0.0.1 // indirect
 	github.com/oarkflow/date v0.0.4 // indirect
 	github.com/oarkflow/dipper v0.0.2 // indirect
@@ -58,5 +59,5 @@ require (
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.21.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	google.golang.org/protobuf v1.34.1 // indirect
+	google.golang.org/protobuf v1.34.2 // indirect
 )

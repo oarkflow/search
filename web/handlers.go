@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -147,6 +148,8 @@ func (f *FulltextController) IndexInBatch(_ context.Context, ctx *frame.Context)
 	Success(ctx, consts.StatusOK, records)
 }
 
+var builtInFields = []string{"q", "m", "l", "f", "t", "o", "s", "e", "condition"}
+
 func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 	var query Query
 	err := ctx.Bind(&query)
@@ -154,14 +157,32 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	var extraMap map[string]any
 	var extra []*filters.Filter
 	err = ctx.Bind(&extra)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	err = ctx.Bind(&extraMap)
+	if err != nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if extraMap != nil {
+		for k, v := range extraMap {
+			if slices.Contains(builtInFields, k) {
+				delete(extraMap, k)
+			} else {
+				extra = append(extra, &filters.Filter{
+					Field:    k,
+					Operator: filters.Equal,
+					Value:    v,
+				})
+			}
+		}
+	}
 	if len(extra) == 0 {
-		builtInFields := []string{"q", "m", "l", "f", "t", "o", "s", "e", "condition"}
 		extra, err = filters.ParseQuery(ctx.QueryArgs().String(), builtInFields...)
 		if err != nil {
 			Failed(ctx, consts.StatusBadRequest, err.Error(), nil)

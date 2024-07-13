@@ -1,7 +1,6 @@
 package tokenizer
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
@@ -59,7 +58,6 @@ func Tokenize(params TokenizeParams, config Config, tokens map[string]int) error
 			}
 		}
 	}
-	fmt.Println(tokens)
 	return nil
 }
 

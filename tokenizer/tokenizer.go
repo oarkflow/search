@@ -1,6 +1,7 @@
 package tokenizer
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
@@ -19,7 +20,7 @@ const (
 )
 
 var splitRules = map[Language]*regexp.Regexp{
-	ENGLISH: regexp.MustCompile(`[^A-Za-zàèéìòóù0-9_'-:.]`),
+	ENGLISH: regexp.MustCompile(`[^A-Za-zàèéìòóù0-9_'-:."]`),
 }
 
 var normalizer = transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
@@ -47,14 +48,18 @@ func IsSupportedLanguage(language Language) bool {
 	return ok
 }
 
+var re = strings.NewReplacer("(", "", ")", "")
+
 func Tokenize(params TokenizeParams, config Config, tokens map[string]int) error {
-	for _, token := range strings.Fields(lib.ToLower(params.Text)) {
+	text := re.Replace(params.Text)
+	for _, token := range strings.Fields(lib.ToLower(text)) {
 		if normToken := normalizeToken(normalizeParams{token: token, language: params.Language}, config); normToken != "" {
 			if _, ok := tokens[normToken]; (!ok && !params.AllowDuplicates) || params.AllowDuplicates {
 				tokens[normToken]++
 			}
 		}
 	}
+	fmt.Println(tokens)
 	return nil
 }
 

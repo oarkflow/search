@@ -241,10 +241,11 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		}
 	}
 	Success(ctx, consts.StatusOK, utils.H{
-		keyType: records,
-		"count": result.Count,
-		"total": result.Total,
-	})
+		keyType:          records,
+		"count":          result.Count,
+		"filtered_total": result.FilteredTotal,
+		"total":          result.Total,
+	}, result.Message)
 }
 
 func (f *FulltextController) TotalDocuments(_ context.Context, ctx *frame.Context) {

@@ -96,10 +96,11 @@ type BM25Params struct {
 }
 
 type Result[Schema SchemaProps] struct {
-	Hits    Hits[Schema] `json:"hits"`
-	Count   int          `json:"count"`
-	Total   int          `json:"total"`
-	Message string       `json:"message"`
+	Hits          Hits[Schema] `json:"hits"`
+	Count         int          `json:"count"`
+	FilteredTotal int          `json:"filtered_total"`
+	Total         int          `json:"total"`
+	Message       string       `json:"message"`
 }
 
 type Hit[Schema SchemaProps] struct {
@@ -602,14 +603,16 @@ func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, err
 
 func (db *Engine[Schema]) prepareResult(results Hits[Schema], params *Params) (Result[Schema], error) {
 	sort.Sort(results)
+	resultLen := len(results)
 	if !params.Paginate {
-		return Result[Schema]{Hits: results, Count: len(results), Total: db.DocumentLen()}, nil
+		return Result[Schema]{Hits: results, Count: resultLen, FilteredTotal: resultLen, Total: db.DocumentLen()}, nil
 	}
 	if params.Limit == 0 {
 		params.Limit = 20
 	}
-	start, stop := lib.Paginate(params.Offset, params.Limit, len(results))
-	return Result[Schema]{Hits: results[start:stop], Count: len(results), Total: db.DocumentLen()}, nil
+	start, stop := lib.Paginate(params.Offset, params.Limit, resultLen)
+	paginatedResult := results[start:stop]
+	return Result[Schema]{Hits: paginatedResult, Count: len(paginatedResult), FilteredTotal: len(results), Total: db.DocumentLen()}, nil
 }
 
 func (db *Engine[Schema]) getDocuments(scores map[int64]float64) Hits[Schema] {

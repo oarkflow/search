@@ -11,7 +11,7 @@ require (
 	github.com/oarkflow/metadata v0.0.64
 	github.com/oarkflow/squealx v0.0.19
 	github.com/oarkflow/xid v1.2.5
-	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8
+	golang.org/x/exp v0.0.0-20240707233637-46b078467d37
 	golang.org/x/text v0.16.0
 )
 

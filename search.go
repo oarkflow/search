@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/oarkflow/gopool"
@@ -76,6 +77,7 @@ type Params struct {
 	Paginate   bool               `json:"paginate"`
 	Offset     int                `json:"offset"`
 	Limit      int                `json:"limit"`
+	Sort       string             `json:"sort"`
 	Language   tokenizer.Language `json:"lang"`
 }
 
@@ -151,7 +153,7 @@ func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], erro
 	if c.SampleSize == 0 {
 		c.SampleSize = 20
 	}
-	return storage.NewMemDB[int64, Schema](c.SampleSize)
+	return storage.NewMemDB[int64, Schema](c.SampleSize, storage.Int64Comparator)
 }
 
 func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
@@ -493,14 +495,24 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	}
 	ProcessQueryAndFilters(params, filter)
 	if params.Query == "" && len(params.Filters) == 0 {
-		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Sequence: filter, Filters: params.Filters})
+		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Sequence: filter, Filters: params.Filters, Sort: params.Sort})
 	}
 	allIdScores, err := db.findWithParams(params)
 	if err != nil {
 		return Result[Schema]{}, err
 	}
 	if len(allIdScores) == 0 && params.Query == "" {
-		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Sequence: filter, Filters: params.Filters})
+		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Sequence: filter, Filters: params.Filters, Sort: params.Sort})
+	}
+	// Step 1: Extract and sort keys
+	keys := make([]int64, 0, len(allIdScores))
+	for key := range allIdScores {
+		keys = append(keys, key)
+	}
+	if params.Sort == "" || strings.ToLower(params.Sort) == "asc" {
+		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	} else if strings.ToLower(params.Sort) == "desc" {
+		sort.Slice(keys, func(i, j int) bool { return keys[i] > keys[j] })
 	}
 	results := make(Hits[Schema], 0)
 	cache := make(map[int64]float64)
@@ -508,7 +520,8 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 		results = nil
 		cache = nil
 	}()
-	for id, score := range allIdScores {
+	for _, id := range keys {
+		score := allIdScores[id]
 		doc, ok := db.GetDocument(id)
 		if !ok {
 			continue

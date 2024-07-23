@@ -8,6 +8,7 @@ type SampleParams struct {
 	Size     int
 	Filters  []*filters.Filter
 	Sequence *filters.Sequence
+	Sort     string
 }
 
 // Store defines the interface for our key-value store

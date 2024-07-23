@@ -2,6 +2,8 @@ package storage
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"unsafe"
 
 	"github.com/oarkflow/filters"
@@ -9,17 +11,30 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
+func Int64Comparator(a, b int64) int {
+	if a < b {
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	return 0
+}
+
 type hashable interface {
 	constraints.Integer | constraints.Float | constraints.Complex | ~string | uintptr | unsafe.Pointer
 }
 
+type Comparator[K any] func(a, b K) int
+
 type MemDB[K hashable, V any] struct {
 	client     maps.IMap[K, V]
 	sampleSize int
+	comparator Comparator[K]
 }
 
-func NewMemDB[K hashable, V any](sampleSize int) (Store[K, V], error) {
-	return &MemDB[K, V]{client: maps.New[K, V](), sampleSize: sampleSize}, nil
+func NewMemDB[K hashable, V any](sampleSize int, comparator Comparator[K]) (*MemDB[K, V], error) {
+	return &MemDB[K, V]{client: maps.New[K, V](), sampleSize: sampleSize, comparator: comparator}, nil
 }
 
 func (m *MemDB[K, V]) Set(key K, value V) error {
@@ -50,11 +65,10 @@ func (m *MemDB[K, V]) Sample(params SampleParams) (map[string]V, error) {
 		sz = params.Size
 	}
 	value := make(map[string]V)
-	count := 0
+	var keys []K
+
+	// Collect matching keys
 	m.client.ForEach(func(key K, val V) bool {
-		if count >= sz {
-			return false
-		}
 		matched := false
 		if params.Sequence == nil && params.Filters == nil {
 			matched = true
@@ -66,12 +80,32 @@ func (m *MemDB[K, V]) Sample(params SampleParams) (map[string]V, error) {
 			matched = true
 		}
 		if matched {
-			tmp := fmt.Sprint(key)
-			value[tmp] = val
-			count++
+			keys = append(keys, key)
 		}
 		return true
 	})
+	if params.Sort == "" || strings.ToLower(params.Sort) == "asc" {
+		sort.Slice(keys, func(i, j int) bool {
+			return m.comparator(keys[i], keys[j]) < 0
+		})
+	} else if strings.ToLower(params.Sort) == "desc" {
+		sort.Slice(keys, func(i, j int) bool {
+			return m.comparator(keys[i], keys[j]) > 0
+		})
+	}
+
+	// Collect values for sorted keys
+	count := 0
+	for _, key := range keys {
+		if count >= sz {
+			break
+		}
+		val, _ := m.client.Get(key)
+		tmp := fmt.Sprint(key)
+		value[tmp] = val
+		count++
+	}
+
 	return value, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -174,11 +175,20 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 			if slices.Contains(builtInFields, k) {
 				delete(extraMap, k)
 			} else {
-				extra = append(extra, &filters.Filter{
-					Field:    k,
-					Operator: filters.Equal,
-					Value:    v,
-				})
+				vt := reflect.TypeOf(v).Kind()
+				if vt == reflect.Slice {
+					extra = append(extra, &filters.Filter{
+						Field:    k,
+						Operator: filters.In,
+						Value:    v,
+					})
+				} else {
+					extra = append(extra, &filters.Filter{
+						Field:    k,
+						Operator: filters.Equal,
+						Value:    v,
+					})
+				}
 			}
 		}
 	}

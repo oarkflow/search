@@ -1,9 +1,7 @@
 package search
 
 import (
-	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,7 +12,6 @@ import (
 	"sync"
 
 	"github.com/oarkflow/gopool"
-	"github.com/oarkflow/gopool/spinlock"
 	"github.com/oarkflow/log"
 	"github.com/oarkflow/xid"
 
@@ -81,14 +78,9 @@ type Params struct {
 	Language   tokenizer.Language `json:"lang"`
 }
 
-func (p *Params) ToInt64() uint64 {
-	bt, err := json.Marshal(p)
-	if err != nil {
-		return 0
-	}
-	f := fnv.New64()
-	_, _ = f.Write(bt)
-	return f.Sum64()
+func (p *Params) ToInt64() int64 {
+	return lib.CRC32Checksum(p)
+
 }
 
 type BM25Params struct {
@@ -132,6 +124,11 @@ type Config struct {
 	Compress        bool            `json:"compress"`
 	ResetPath       bool            `json:"reset_path"`
 	SampleSize      int             `json:"sample_size"`
+	IDGenerator     func() int64
+}
+
+func defaultIDGenerator() int64 {
+	return xid.New().Int64()
 }
 
 type Engine[Schema SchemaProps] struct {
@@ -142,7 +139,7 @@ type Engine[Schema SchemaProps] struct {
 	defaultLanguage tokenizer.Language
 	tokenizerConfig *tokenizer.Config
 	rules           map[string]bool
-	cache           maps.IMap[uint64, map[int64]float64]
+	cache           maps.IMap[int64, map[int64]float64]
 	key             string
 	sliceField      string
 	path            string
@@ -187,6 +184,9 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 	store, err := getStore[Schema](c)
 	if err != nil {
 		return nil, err
+	}
+	if c.IDGenerator == nil {
+		c.IDGenerator = defaultIDGenerator
 	}
 	db := &Engine[Schema]{
 		key:             c.Key,
@@ -284,6 +284,7 @@ func (db *Engine[Schema]) Insert(doc Schema, lang ...tokenizer.Language) (Record
 			}
 		}
 	}
+	id := db.cfg.IDGenerator()
 	if len(db.indexKeys) == 0 {
 		indexKeys := DocFields(doc)
 		db.addIndexes(indexKeys)
@@ -292,7 +293,6 @@ func (db *Engine[Schema]) Insert(doc Schema, lang ...tokenizer.Language) (Record
 	if len(lang) > 0 {
 		language = lang[0]
 	}
-	id := xid.New().Int64()
 	document := db.flattenSchema(doc)
 
 	if language == "" {
@@ -316,17 +316,17 @@ func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker, batchSize in
 		return nil
 	}
 	var errs []error
-	pool := gopool.NewGoPool(noOfWorker,
-		gopool.WithTaskQueueSize(batchSize),
-		gopool.WithLock(new(spinlock.SpinLock)),
-		gopool.WithErrorCallback(func(err error) {
-			errs = append(errs, err)
-		}),
-	)
-	defer pool.Release()
 	language := tokenizer.ENGLISH
 	if len(lang) > 0 {
 		language = lang[0]
+	}
+
+	pool, err := gopool.NewPoolSimple(noOfWorker, func(doc gopool.Job[Schema], workerID int) error {
+		_, err := db.Insert(doc.Payload, language)
+		return err
+	})
+	if err != nil {
+		return []error{err}
 	}
 	for i, doc := range docs {
 		if i == 0 {
@@ -337,12 +337,10 @@ func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker, batchSize in
 				errs = append(errs, err)
 			}
 		} else {
-			pool.AddTask(func() (interface{}, error) {
-				return db.Insert(doc, language)
-			})
+			pool.Submit(doc)
 		}
 	}
-	pool.Wait()
+	pool.StopAndWait()
 	return errs
 }
 
@@ -472,7 +470,7 @@ func removeFilter(filters []*filters.Filter, filterToRemove *filters.Filter) []*
 // Search - uses params to search
 func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	if db.cache == nil {
-		db.cache = maps.New[uint64, map[int64]float64]()
+		db.cache = maps.New[int64, map[int64]float64]()
 	}
 	cachedKey := params.ToInt64()
 	if cachedKey != 0 {

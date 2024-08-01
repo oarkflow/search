@@ -5,7 +5,7 @@ go 1.22.3
 require (
 	github.com/oarkflow/filters v0.0.17
 	github.com/oarkflow/frame v0.0.68
-	github.com/oarkflow/gopool v0.0.1
+	github.com/oarkflow/gopool v0.0.2
 	github.com/oarkflow/log v1.0.79
 	github.com/oarkflow/maps v0.0.0-20240406152114-fc5a94538f01
 	github.com/oarkflow/metadata v0.0.64

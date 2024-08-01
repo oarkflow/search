@@ -82,8 +82,8 @@ github.com/oarkflow/filters v0.0.17 h1:KnM1bdqexe2lFh52i4OC3dVpW6yJ2NFUrtAM5L80d
 github.com/oarkflow/filters v0.0.17/go.mod h1:vEVfLeTq3UrtnpH+p8tXDEH/9g97t2e6v7k/tOa0Dd4=
 github.com/oarkflow/frame v0.0.68 h1:p4UkRmhdPQyQbh5KRrnRgzbW8lSOKRl2V+DZ+pRCWrI=
 github.com/oarkflow/frame v0.0.68/go.mod h1:rcIskN3uuvgVHvAp+t4fdQLefrytHeWj/ZKNsRVonPM=
-github.com/oarkflow/gopool v0.0.1 h1:i3Z+0dtVshW2nLWxuaiwvB5MTRWndYtGbUeGwqPnQlc=
-github.com/oarkflow/gopool v0.0.1/go.mod h1:ZHpD3tJY8MMvT9NG9Dgoc27bVKdi7fhI85BKDVSHmZY=
+github.com/oarkflow/gopool v0.0.2 h1:LUo1ZeE+tjYgFRXeejuXV4pAcaRouqQmsnhyvQHzCeg=
+github.com/oarkflow/gopool v0.0.2/go.mod h1:ZHpD3tJY8MMvT9NG9Dgoc27bVKdi7fhI85BKDVSHmZY=
 github.com/oarkflow/json v0.0.8 h1:T3B8JJ9JEVrgHDsjOwV2lUqvSB3Pj84DCjlRKf7CB4I=
 github.com/oarkflow/json v0.0.8/go.mod h1:S5BZA4/rM87+MY8mFrga3jISzxCL9RtLE6xHSk63VxI=
 github.com/oarkflow/log v1.0.79 h1:DxhtkBGG+pUu6cudSVw5g75FbKEQJkij5w7n5AEN00M=

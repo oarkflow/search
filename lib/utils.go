@@ -3,6 +3,7 @@ package lib
 import (
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"os"
 	"runtime"
 	"unsafe"
@@ -35,4 +36,14 @@ func Stats() uint64 {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	return m.Alloc / (1024 * 1024)
+}
+
+func CRC32Checksum(data interface{}) int64 {
+	bt, err := json.Marshal(data)
+	if err != nil {
+		return 0
+	}
+	table := crc32.MakeTable(crc32.IEEE)
+	checksum := crc32.Checksum(bt, table)
+	return int64(checksum)
 }

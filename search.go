@@ -111,7 +111,7 @@ func (r Hits[Schema]) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
 
 func (r Hits[Schema]) Less(i, j int) bool { return r[i].Score > r[j].Score }
 
-type Config struct {
+type Config[Schema SchemaProps] struct {
 	Key             string             `json:"key"`
 	DefaultLanguage tokenizer.Language `json:"default_language"`
 	TokenizerConfig *tokenizer.Config
@@ -124,10 +124,10 @@ type Config struct {
 	Compress        bool            `json:"compress"`
 	ResetPath       bool            `json:"reset_path"`
 	SampleSize      int             `json:"sample_size"`
-	IDGenerator     func() int64
+	IDGenerator     func(doc Schema) int64
 }
 
-func defaultIDGenerator() int64 {
+func defaultIDGenerator[Schema SchemaProps](doc Schema) int64 {
 	return xid.New().Int64()
 }
 
@@ -143,18 +143,18 @@ type Engine[Schema SchemaProps] struct {
 	key             string
 	sliceField      string
 	path            string
-	cfg             *Config
+	cfg             *Config[Schema]
 }
 
-func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], error) {
+func getStore[Schema SchemaProps](c *Config[Schema]) (storage.Store[int64, Schema], error) {
 	if c.SampleSize == 0 {
 		c.SampleSize = 20
 	}
 	return storage.NewMemDB[int64, Schema](c.SampleSize, storage.Int64Comparator)
 }
 
-func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
-	c := &Config{}
+func New[Schema SchemaProps](cfg ...*Config[Schema]) (*Engine[Schema], error) {
+	c := &Config[Schema]{}
 	if len(cfg) > 0 {
 		c = cfg[0]
 	}
@@ -186,7 +186,7 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 		return nil, err
 	}
 	if c.IDGenerator == nil {
-		c.IDGenerator = defaultIDGenerator
+		c.IDGenerator = defaultIDGenerator[Schema]
 	}
 	db := &Engine[Schema]{
 		key:             c.Key,
@@ -284,7 +284,7 @@ func (db *Engine[Schema]) Insert(doc Schema, lang ...tokenizer.Language) (Record
 			}
 		}
 	}
-	id := db.cfg.IDGenerator()
+	id := db.cfg.IDGenerator(doc)
 	if len(db.indexKeys) == 0 {
 		indexKeys := DocFields(doc)
 		db.addIndexes(indexKeys)

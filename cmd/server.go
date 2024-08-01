@@ -23,7 +23,7 @@ func main() {
 	addr := fmt.Sprintf("%s:%s", *hostPtr, *portPtr)
 	if *filePtr != "" && *indexKeyPtr != "" {
 		icds := lib.ReadFileAsMap(*filePtr)
-		engine, err := search.GetOrSetEngine[map[string]any](*indexKeyPtr, &search.Config{})
+		engine, err := search.GetOrSetEngine[map[string]any](*indexKeyPtr, &search.Config[map[string]any]{})
 		if err != nil {
 			panic(err)
 		}

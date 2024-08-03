@@ -18,8 +18,8 @@ func init() {
 
 var DefaultPath = "documentStorage/fts"
 
-func GetConfig[Schema SchemaProps](key string) *Config[Schema] {
-	return &Config[Schema]{
+func GetConfig(key string) *Config {
+	return &Config{
 		Key:             key,
 		DefaultLanguage: tokenizer.ENGLISH,
 		TokenizerConfig: &tokenizer.Config{
@@ -49,7 +49,7 @@ func GetEngine[Schema SchemaProps](key string) (*Engine[Schema], error) {
 	return nil, errors.New(fmt.Sprintf("Engine for key %s not available", key))
 }
 
-func SetEngine[Schema SchemaProps](key string, config *Config[Schema]) (*Engine[Schema], error) {
+func SetEngine[Schema SchemaProps](key string, config *Config) (*Engine[Schema], error) {
 	_, ok := engines.Get(key)
 	if ok {
 		return nil, errors.New(fmt.Sprintf("Engine for key %s already exists", key))
@@ -61,7 +61,7 @@ func SetEngine[Schema SchemaProps](key string, config *Config[Schema]) (*Engine[
 	AddEngine(key, eng)
 	return eng, nil
 }
-func GetOrSetEngine[Schema SchemaProps](key string, config *Config[Schema]) (*Engine[Schema], error) {
+func GetOrSetEngine[Schema SchemaProps](key string, config *Config) (*Engine[Schema], error) {
 	eng1, ok := engines.Get(key)
 	if ok && eng1 != nil {
 		return eng1.(*Engine[Schema]), nil

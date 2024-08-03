@@ -111,7 +111,7 @@ func (r Hits[Schema]) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
 
 func (r Hits[Schema]) Less(i, j int) bool { return r[i].Score > r[j].Score }
 
-type Config[Schema SchemaProps] struct {
+type Config struct {
 	Key             string             `json:"key"`
 	DefaultLanguage tokenizer.Language `json:"default_language"`
 	TokenizerConfig *tokenizer.Config
@@ -124,10 +124,10 @@ type Config[Schema SchemaProps] struct {
 	Compress        bool            `json:"compress"`
 	ResetPath       bool            `json:"reset_path"`
 	SampleSize      int             `json:"sample_size"`
-	IDGenerator     func(doc Schema) int64
+	IDGenerator     func(doc any) int64
 }
 
-func defaultIDGenerator[Schema SchemaProps](doc Schema) int64 {
+func defaultIDGenerator(doc any) int64 {
 	return xid.New().Int64()
 }
 
@@ -143,18 +143,18 @@ type Engine[Schema SchemaProps] struct {
 	key             string
 	sliceField      string
 	path            string
-	cfg             *Config[Schema]
+	cfg             *Config
 }
 
-func getStore[Schema SchemaProps](c *Config[Schema]) (storage.Store[int64, Schema], error) {
+func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], error) {
 	if c.SampleSize == 0 {
 		c.SampleSize = 20
 	}
 	return storage.NewMemDB[int64, Schema](c.SampleSize, storage.Int64Comparator)
 }
 
-func New[Schema SchemaProps](cfg ...*Config[Schema]) (*Engine[Schema], error) {
-	c := &Config[Schema]{}
+func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
+	c := &Config{}
 	if len(cfg) > 0 {
 		c = cfg[0]
 	}
@@ -186,7 +186,7 @@ func New[Schema SchemaProps](cfg ...*Config[Schema]) (*Engine[Schema], error) {
 		return nil, err
 	}
 	if c.IDGenerator == nil {
-		c.IDGenerator = defaultIDGenerator[Schema]
+		c.IDGenerator = defaultIDGenerator
 	}
 	db := &Engine[Schema]{
 		key:             c.Key,

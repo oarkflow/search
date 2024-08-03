@@ -114,7 +114,7 @@ func (f *FulltextController) NewEngine(_ context.Context, ctx *frame.Context) {
 		Failed(ctx, consts.StatusBadRequest, "Key not provided", nil)
 		return
 	}
-	cfg := search.GetConfig[map[string]any](req.Key)
+	cfg := search.GetConfig(req.Key)
 	cfg.IndexKeys = req.FieldsToIndex
 	cfg.FieldsToStore = req.FieldsToStore
 	cfg.FieldsToExclude = req.FieldsToExclude

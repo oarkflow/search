@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"runtime"
-	
+
 	"github.com/oarkflow/search"
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/web"
@@ -23,7 +23,7 @@ func main() {
 	addr := fmt.Sprintf("%s:%s", *hostPtr, *portPtr)
 	if *filePtr != "" && *indexKeyPtr != "" {
 		icds := lib.ReadFileAsMap(*filePtr)
-		engine, err := search.GetOrSetEngine[map[string]any](*indexKeyPtr, &search.Config[map[string]any]{})
+		engine, err := search.GetOrSetEngine[map[string]any](*indexKeyPtr, &search.Config{})
 		if err != nil {
 			panic(err)
 		}

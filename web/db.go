@@ -24,7 +24,7 @@ func IndexFromDB(db metadata.DataSource, dbConfig Database, start time.Time) err
 	if dbConfig.Query != "" {
 		query = strings.TrimSuffix(dbConfig.Query, ";")
 	}
-	cfg := search.GetConfig[map[string]any](dbConfig.IndexKey)
+	cfg := search.GetConfig(dbConfig.IndexKey)
 	cfg.IndexKeys = dbConfig.FieldsToIndex
 	cfg.FieldsToStore = dbConfig.FieldsToStore
 	cfg.FieldsToExclude = dbConfig.FieldsToExclude
@@ -90,7 +90,7 @@ func IndexFromDBWithPaginate(db metadata.DataSource, dbConfig Database, start ti
 	if dbConfig.Query != "" {
 		query = strings.Split(strings.TrimSuffix(dbConfig.Query, ";"), "LIMIT")[0]
 	}
-	cfg := search.GetConfig[map[string]any](dbConfig.IndexKey)
+	cfg := search.GetConfig(dbConfig.IndexKey)
 	cfg.IndexKeys = dbConfig.FieldsToIndex
 	cfg.FieldsToStore = dbConfig.FieldsToStore
 	cfg.FieldsToExclude = dbConfig.FieldsToExclude

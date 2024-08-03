@@ -5,10 +5,10 @@ import (
 )
 
 type SampleParams struct {
-	Size     int
-	Filters  []*filters.Filter
-	Sequence *filters.Sequence
-	Sort     string
+	Size    int
+	Filters []*filters.Filter
+	Rule    *filters.Rule
+	Sort    string
 }
 
 // Store defines the interface for our key-value store

@@ -66,17 +66,20 @@ func (m *MemDB[K, V]) Sample(params SampleParams) (map[string]V, error) {
 	}
 	value := make(map[string]V)
 	var keys []K
-
+	var conditions []filters.Condition
+	for _, f := range params.Filters {
+		conditions = append(conditions, f)
+	}
 	// Collect matching keys
 	m.client.ForEach(func(key K, val V) bool {
 		matched := false
-		if params.Sequence == nil && params.Filters == nil {
+		if params.Rule == nil && params.Filters == nil {
 			matched = true
-		} else if params.Sequence != nil {
-			if params.Sequence.Match(val) {
+		} else if params.Rule != nil {
+			if params.Rule.Match(val) {
 				matched = true
 			}
-		} else if filters.MatchGroup(val, &filters.FilterGroup{Operator: filters.AND, Filters: params.Filters}) {
+		} else if filters.MatchGroup(val, &filters.FilterGroup{Operator: filters.AND, Filters: conditions}) {
 			matched = true
 		}
 		if matched {

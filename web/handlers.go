@@ -14,11 +14,13 @@ import (
 	"github.com/oarkflow/frame/middlewares/server/monitor"
 	"github.com/oarkflow/frame/pkg/protocol/consts"
 	"github.com/oarkflow/frame/server"
+	"github.com/oarkflow/log"
 	"github.com/oarkflow/metadata"
 
 	"github.com/oarkflow/filters"
 
 	"github.com/oarkflow/search"
+	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/tokenizer"
 
 	"github.com/oarkflow/frame"
@@ -217,12 +219,23 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	start := time.Now()
+	before := lib.Stats()
 	keyType := ctx.Param("type")
 	records, result, err := f.search(keyType, query)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	after := lib.Stats()
+	log.Info().
+		Int("filtered_total", result.FilteredTotal).
+		Int("total", result.Total).
+		Int("count", result.Count).
+		Str("latency", fmt.Sprintf("%s", time.Since(start))).
+		Str("memory_usage", fmt.Sprintf("%dMB", after-before)).
+		Str("fts_key", keyType).
+		Msg("Searching completed")
 	Success(ctx, consts.StatusOK, utils.H{
 		keyType:          records,
 		"count":          result.Count,

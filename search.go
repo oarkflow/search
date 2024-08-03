@@ -392,13 +392,17 @@ func (db *Engine[Schema]) ClearCache() {
 }
 
 // CheckCondition function checks if a key-value map exists in any type of data
-func (db *Engine[Schema]) CheckCondition(data Schema, filter *filters.Sequence) bool {
+func (db *Engine[Schema]) CheckCondition(data Schema, filter *filters.Rule) bool {
 	return filter.Match(data)
 }
 
 // Check function checks if a key-value map exists in any type of data
 func (db *Engine[Schema]) Check(data Schema, filter []*filters.Filter) bool {
-	return filters.MatchGroup(data, &filters.FilterGroup{Operator: filters.AND, Filters: filter})
+	var conditions []filters.Condition
+	for _, f := range filter {
+		conditions = append(conditions, f)
+	}
+	return filters.MatchGroup(data, &filters.FilterGroup{Operator: filters.AND, Filters: conditions})
 }
 
 func (db *Engine[Schema]) Sample(params storage.SampleParams) (Result[Schema], error) {
@@ -414,7 +418,7 @@ func (db *Engine[Schema]) Sample(params storage.SampleParams) (Result[Schema], e
 	return db.prepareResult(results, &Params{Paginate: false})
 }
 
-func ProcessQueryAndFilters(params *Params, seq *filters.Sequence) {
+func ProcessQueryAndFilters(params *Params, seq *filters.Rule) {
 	var extraFilters []*filters.Filter
 	if params.Query != "" {
 		for _, filter := range params.Filters {
@@ -483,7 +487,7 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	if params.BoolMode == "" {
 		params.BoolMode = AND
 	}
-	var filter *filters.Sequence
+	var filter *filters.Rule
 	var err error
 	if params.Condition != "" {
 		filter, err = filters.ParseSQL(params.Condition)
@@ -493,14 +497,14 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	}
 	ProcessQueryAndFilters(params, filter)
 	if params.Query == "" && len(params.Filters) == 0 {
-		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Sequence: filter, Filters: params.Filters, Sort: params.Sort})
+		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Rule: filter, Filters: params.Filters, Sort: params.Sort})
 	}
 	allIdScores, err := db.findWithParams(params)
 	if err != nil {
 		return Result[Schema]{}, err
 	}
 	if len(allIdScores) == 0 && params.Query == "" {
-		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Sequence: filter, Filters: params.Filters, Sort: params.Sort})
+		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Rule: filter, Filters: params.Filters, Sort: params.Sort})
 	}
 	// Step 1: Extract and sort keys
 	keys := make([]int64, 0, len(allIdScores))
@@ -556,7 +560,7 @@ func (db *Engine[Schema]) sampleWithFilters(params storage.SampleParams) (Result
 	if err != nil {
 		return rs, err
 	}
-	if params.Filters == nil && params.Sequence == nil {
+	if params.Filters == nil && params.Rule == nil {
 		rs.Message = "[WARN] - Query or Filters not applied"
 	}
 	return rs, nil

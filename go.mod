@@ -3,7 +3,7 @@ module github.com/oarkflow/search
 go 1.22.3
 
 require (
-	github.com/oarkflow/filters v0.0.17
+	github.com/oarkflow/filters v0.0.18
 	github.com/oarkflow/frame v0.0.68
 	github.com/oarkflow/gopool v0.0.2
 	github.com/oarkflow/log v1.0.79
@@ -11,7 +11,7 @@ require (
 	github.com/oarkflow/metadata v0.0.64
 	github.com/oarkflow/squealx v0.0.19
 	github.com/oarkflow/xid v1.2.5
-	golang.org/x/exp v0.0.0-20240707233637-46b078467d37
+	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
 	golang.org/x/text v0.16.0
 )
 

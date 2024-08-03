@@ -6,6 +6,7 @@ import (
 
 	"github.com/oarkflow/maps"
 
+	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/tokenizer"
 )
 
@@ -71,6 +72,22 @@ func GetOrSetEngine[Schema SchemaProps](key string, config *Config[Schema]) (*En
 	}
 	AddEngine(key, eng)
 	return eng, nil
+}
+
+type EngineInfo struct {
+	Key   string
+	Title string
+}
+
+func Engines() (info []EngineInfo) {
+	engines.ForEach(func(key string, _ any) bool {
+		info = append(info, EngineInfo{
+			Key:   key,
+			Title: lib.ToTitleCase(key),
+		})
+		return true
+	})
+	return
 }
 
 func AddEngine(key string, engine any) {

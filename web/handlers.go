@@ -99,6 +99,10 @@ func (f *FulltextController) IndexTypes(_ context.Context, ctx *frame.Context) {
 	Success(ctx, consts.StatusOK, search.AvailableEngines[map[string]any]())
 }
 
+func (f *FulltextController) EngineIndex(_ context.Context, ctx *frame.Context) {
+	Success(ctx, consts.StatusOK, search.Engines())
+}
+
 func (f *FulltextController) NewEngine(_ context.Context, ctx *frame.Context) {
 	var req Options
 	err := ctx.Bind(&req)
@@ -151,24 +155,21 @@ func (f *FulltextController) IndexInBatch(_ context.Context, ctx *frame.Context)
 
 var builtInFields = []string{"q", "m", "l", "f", "t", "o", "s", "e", "condition"}
 
-func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
+func (f *FulltextController) prepareQuery(ctx *frame.Context) (Query, error) {
 	var query Query
 	err := ctx.Bind(&query)
 	if err != nil {
-		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
-		return
+		return query, err
 	}
 	var extraMap map[string]any
 	var extra []*filters.Filter
 	err = ctx.Bind(&extra)
 	if err != nil {
-		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
-		return
+		return query, err
 	}
 	err = ctx.Bind(&extraMap)
 	if err != nil {
-		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
-		return
+		return query, err
 	}
 	if extraMap != nil {
 		for k, v := range extraMap {
@@ -195,15 +196,8 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 	if len(extra) == 0 {
 		extra, err = filters.ParseQuery(ctx.QueryArgs().String(), builtInFields...)
 		if err != nil {
-			Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
-			return
+			return query, err
 		}
-	}
-	keyType := ctx.Param("type")
-	engine, err := search.GetEngine[map[string]any](keyType)
-	if err != nil {
-		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
-		return
 	}
 	if extra != nil && query.Filters == nil {
 		query.Filters = extra
@@ -213,6 +207,58 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 		query.Match = "OR"
 	} else {
 		query.Match = "AND"
+	}
+	return query, nil
+}
+
+func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
+	query, err := f.prepareQuery(ctx)
+	if err != nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	keyType := ctx.Param("type")
+	records, result, err := f.search(keyType, query)
+	if err != nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	Success(ctx, consts.StatusOK, utils.H{
+		keyType:          records,
+		"count":          result.Count,
+		"filtered_total": result.FilteredTotal,
+		"total":          result.Total,
+	}, result.Message)
+}
+
+func (f *FulltextController) GlobalSearch(c context.Context, ctx *frame.Context) {
+	query, err := f.prepareQuery(ctx)
+	if err != nil {
+		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	query.Size = 10
+	var rs []utils.H
+	for _, keyType := range search.Engines() {
+		records, result, err := f.search(keyType.Key, query)
+		if err != nil {
+			Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
+			return
+		}
+		rs = append(rs, utils.H{
+			keyType.Key:      records,
+			"count":          result.Count,
+			"filtered_total": result.FilteredTotal,
+			"total":          result.Total,
+		})
+	}
+	Success(ctx, consts.StatusOK, rs)
+}
+
+func (f *FulltextController) search(keyType string, query Query) ([]map[string]any, search.Result[map[string]any], error) {
+	engine, err := search.GetEngine[map[string]any](keyType)
+	if err != nil {
+		return nil, search.Result[map[string]any]{}, err
 	}
 	params := &search.Params{
 		Query:      query.Query,
@@ -232,8 +278,7 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 	var records []map[string]any
 	result, err := engine.Search(params)
 	if err != nil {
-		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
-		return
+		return nil, search.Result[map[string]any]{}, err
 	}
 	for _, record := range result.Hits {
 		switch d := any(record.Data).(type) {
@@ -250,12 +295,7 @@ func (f *FulltextController) Search(_ context.Context, ctx *frame.Context) {
 			records = append(records, d)
 		}
 	}
-	Success(ctx, consts.StatusOK, utils.H{
-		keyType:          records,
-		"count":          result.Count,
-		"filtered_total": result.FilteredTotal,
-		"total":          result.Total,
-	}, result.Message)
+	return records, result, nil
 }
 
 func (f *FulltextController) TotalDocuments(_ context.Context, ctx *frame.Context) {
@@ -329,11 +369,13 @@ func SearchRoutes(route route.IRouter) route.IRouter {
 		Compress:   true,
 	})
 	route.POST("/new", controller.NewEngine)
+	route.GET("/engines", controller.EngineIndex)
 	route.GET("/types", controller.IndexTypes)
 	route.GET("/count/:type", controller.TotalDocuments)
 	route.POST("/index/:type", controller.Index)
 	route.GET("/search/:type", controller.Search)
 	route.POST("/search/:type", controller.Search)
+	route.POST("/global/search", controller.GlobalSearch)
 	route.GET("/metadata/:type", controller.Metadata)
 	route.POST("/database/index", controller.IndexFromDatabase)
 	route.POST("/cache/:type/clear", controller.ClearCache)

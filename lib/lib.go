@@ -2,7 +2,19 @@ package lib
 
 import (
 	"math"
+	"strings"
+	"unicode"
 )
+
+func ToTitleCase(s string) string {
+	words := strings.FieldsFunc(s, func(r rune) bool {
+		return r == '-' || r == '_' || unicode.IsSpace(r)
+	})
+	for i, word := range words {
+		words[i] = strings.Title(strings.ToLower(word))
+	}
+	return strings.Join(words, " ")
+}
 
 func BM25(tf float64, matchingDocsCount int, fieldLength int, avgFieldLength float64, docsCount int, k float64, b float64, d float64) float64 {
 	idf := math.Log(1 + (float64(docsCount-matchingDocsCount)+0.5)/(float64(matchingDocsCount)+0.5))

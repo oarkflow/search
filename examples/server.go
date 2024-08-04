@@ -14,11 +14,9 @@ import (
 
 func main() {
 	req := web.Options{
-		Key:     "cpt",
-		Storage: "memory",
+		Key: "cpt",
 	}
 	cfg := search.GetConfig(req.Key)
-	cfg.Storage = req.Storage
 	cfg.IndexKeys = []string{"charge_type", "client_internal_code", "client_proc_desc", "work_item_id", "effective_date"}
 	cfg.FieldsToStore = []string{"charge_type", "client_internal_code", "client_proc_desc", "work_item_id", "min_effective_date", "max_effective_date"}
 	cfg.FieldsToExclude = req.FieldsToExclude
@@ -29,7 +27,7 @@ func main() {
 		panic(err)
 	}
 	dbConfig := web.Database{
-		Database: "clear_dev",
+		Database: "clear",
 		Query:    "SELECT client_proc_desc, cpt_hcpcs_code, client_internal_code, work_item_id, charge_type, MAX(end_effective_date) as end_effective_date, MIN(effective_date) as min_effective_date, MAX(effective_date) as max_effective_date FROM vw_cpt_master GROUP BY client_proc_desc, cpt_hcpcs_code, client_internal_code, work_item_id, charge_type HAVING work_item_id=58 LIMIT 10;",
 		Driver:   "postgresql",
 		IndexKey: "cpt",
@@ -37,7 +35,6 @@ func main() {
 		Host:     "localhost",
 		Username: "postgres",
 		Port:     5432,
-		Storage:  cfg.Storage,
 	}
 	con := metadata.New(metadata.Config{
 		Name:     dbConfig.IndexKey,
@@ -65,8 +62,6 @@ func main() {
 			fmt.Println(err.Error())
 		}
 	}
-	searchQuery(req)
-	time.Sleep(3 * time.Second)
 	searchQuery(req)
 }
 

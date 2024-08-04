@@ -72,8 +72,8 @@ func normalizeToken(params normalizeParams, config Config) string {
 		// return english.Stem(params.token, false)
 		token = string(stemmer.Stem([]rune(token)))
 	}
-	if normToken, _, err := transform.String(normalizer, token); err == nil {
+	/*if normToken, _, err := transform.String(normalizer, token); err == nil {
 		return normToken
-	}
+	}*/
 	return token
 }

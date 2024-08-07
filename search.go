@@ -755,23 +755,49 @@ func (db *Engine[Schema]) flattenSchema(obj any, prefix ...string) map[string]an
 	}
 }
 
-func getFieldsFromMap(obj map[string]any) []string {
+// getFieldsFromMap retrieves fields from a map in dot notation.
+func getFieldsFromMap(obj map[string]any, prefix ...string) []string {
 	var fields []string
-	rules := make(map[string]bool)
 	for field, val := range obj {
-		if reflect.TypeOf(field).Kind() == reflect.Map {
-			for _, key := range DocFields(val, field) {
-				fields = append(fields, key)
-			}
-		} else {
-			if len(rules) > 0 {
-				if canIndex, ok := rules[field]; ok && canIndex {
-					fields = append(fields, field)
-				}
-			} else {
-				fields = append(fields, field)
-			}
+		fullField := field
+		if len(prefix) > 0 {
+			fullField = fmt.Sprintf("%s.%s", prefix[0], field)
 		}
+
+		switch val := val.(type) {
+		case map[string]any:
+			fields = append(fields, getFieldsFromMap(val, fullField)...)
+		case []any:
+			fields = append(fields, getFieldsFromArray(val, fullField)...)
+		default:
+			fields = append(fields, fullField)
+		}
+	}
+	return fields
+}
+
+func getFieldsFromArray(array []any, prefix ...string) []string {
+	var fields []string
+	// Check if the array contains maps
+	if len(array) > 0 {
+		if _, ok := array[0].(map[string]any); ok {
+			fullFieldPrefix := fmt.Sprintf("%s.#", prefix[0])
+			for _, val := range array {
+				switch val := val.(type) {
+				case map[string]any:
+					fields = append(fields, getFieldsFromMap(val, fullFieldPrefix)...)
+				case []any:
+					fields = append(fields, getFieldsFromArray(val, fullFieldPrefix)...)
+				default:
+					fields = append(fields, fullFieldPrefix)
+				}
+			}
+			return fields
+		}
+	}
+	// If the array does not contain maps, treat it as a simple field
+	if len(prefix) > 0 {
+		fields = append(fields, prefix[0])
 	}
 	return fields
 }
@@ -825,23 +851,23 @@ func DocFields(obj any, prefix ...string) []string {
 
 	switch obj := obj.(type) {
 	case map[string]any:
-		return getFieldsFromMap(obj)
+		return getFieldsFromMap(obj, prefix...)
 	case map[string]string:
 		data := make(map[string]any)
 		for k, v := range obj {
 			data[k] = v
 		}
-		return getFieldsFromMap(data)
+		return getFieldsFromMap(data, prefix...)
 	default:
 		switch obj := obj.(type) {
 		case map[string]any:
-			return getFieldsFromMap(obj)
+			return getFieldsFromMap(obj, prefix...)
 		case map[string]string:
 			data := make(map[string]any)
 			for k, v := range obj {
 				data[k] = v
 			}
-			return getFieldsFromMap(data)
+			return getFieldsFromMap(data, prefix...)
 		default:
 			return getFieldsFromStruct(obj, prefix...)
 		}

@@ -17,7 +17,7 @@ import (
 
 	"github.com/oarkflow/filters"
 
-	"github.com/oarkflow/maps"
+	maps "github.com/oarkflow/xsync"
 
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/storage"
@@ -191,7 +191,7 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 	db := &Engine[Schema]{
 		key:             c.Key,
 		documentStorage: store,
-		indexes:         maps.New[string, *Index](),
+		indexes:         maps.NewMap[string, *Index](),
 		defaultLanguage: c.DefaultLanguage,
 		tokenizerConfig: c.TokenizerConfig,
 		rules:           c.Rules,
@@ -474,7 +474,7 @@ func removeFilter(filters []*filters.Filter, filterToRemove *filters.Filter) []*
 // Search - uses params to search
 func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	if db.cache == nil {
-		db.cache = maps.New[int64, map[int64]float64]()
+		db.cache = maps.NewMap[int64, map[int64]float64]()
 	}
 	cachedKey := params.ToInt64()
 	if cachedKey != 0 {

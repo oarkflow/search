@@ -7,7 +7,7 @@ import (
 	"unsafe"
 
 	"github.com/oarkflow/filters"
-	"github.com/oarkflow/maps"
+	maps "github.com/oarkflow/xsync"
 	"golang.org/x/exp/constraints"
 )
 
@@ -34,7 +34,7 @@ type MemDB[K hashable, V any] struct {
 }
 
 func NewMemDB[K hashable, V any](sampleSize int, comparator Comparator[K]) (*MemDB[K, V], error) {
-	return &MemDB[K, V]{client: maps.New[K, V](), sampleSize: sampleSize, comparator: comparator}, nil
+	return &MemDB[K, V]{client: maps.NewMap[K, V](), sampleSize: sampleSize, comparator: comparator}, nil
 }
 
 func (m *MemDB[K, V]) Set(key K, value V) error {
@@ -56,7 +56,7 @@ func (m *MemDB[K, V]) Del(key K) error {
 }
 
 func (m *MemDB[K, V]) Len() uint32 {
-	return uint32(m.client.Len())
+	return uint32(m.client.Size())
 }
 
 func (m *MemDB[K, V]) Sample(params SampleParams) (map[string]V, error) {
@@ -113,5 +113,6 @@ func (m *MemDB[K, V]) Sample(params SampleParams) (map[string]V, error) {
 }
 
 func (m *MemDB[K, V]) Close() error {
+	m.client.Clear()
 	return nil
 }

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/oarkflow/maps"
+	maps "github.com/oarkflow/xsync"
 
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/tokenizer"
@@ -13,7 +13,7 @@ import (
 var engines maps.IMap[string, any]
 
 func init() {
-	engines = maps.New[string, any]()
+	engines = maps.NewMap[string, any]()
 }
 
 var DefaultPath = "documentStorage/fts"

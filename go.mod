@@ -7,12 +7,12 @@ require (
 	github.com/oarkflow/frame v0.0.68
 	github.com/oarkflow/gopool v0.0.2
 	github.com/oarkflow/log v1.0.79
-	github.com/oarkflow/maps v0.0.0-20240406152114-fc5a94538f01
 	github.com/oarkflow/metadata v0.0.64
 	github.com/oarkflow/squealx v0.0.19
 	github.com/oarkflow/xid v1.2.5
+	github.com/oarkflow/xsync v0.0.5
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
-	golang.org/x/text v0.16.0
+	golang.org/x/text v0.17.0
 )
 
 require (
@@ -55,7 +55,7 @@ require (
 	github.com/xhit/go-simple-mail/v2 v2.16.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/crypto v0.24.0 // indirect
-	golang.org/x/sync v0.7.0 // indirect
+	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.21.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect

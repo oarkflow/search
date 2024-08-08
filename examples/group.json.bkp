@@ -1,0 +1,10 @@
+[
+	{
+		"path" : "./examples/billing-providers.json",
+		"key": "billing-providers"
+	},
+	{
+		"path" : "./examples/icd10_codes.json",
+		"key": "icd10"
+	}
+]

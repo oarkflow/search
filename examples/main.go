@@ -16,7 +16,7 @@ func main() {
 	json.Unmarshal(bt, &params)
 	icds := lib.ReadFileAsMap("cpt_codes.json")
 	db, _ := search.New[map[string]any]()
-	store, err := storage.NewMapWithPersist[int64, map[string]any](100*1024*1024, 100, storage.Int64Comparator, 10, "fts-storage", true)
+	store, err := storage.NewMapWithPersist[int64, map[string]any](5000*1024*1024, 100, storage.Int64Comparator, 10, "fts-storage", true)
 	if err != nil {
 		panic(err)
 	}

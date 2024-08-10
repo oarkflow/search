@@ -33,11 +33,15 @@ func ReadFileAsMap(file string) (icds []map[string]any) {
 }
 
 func Stats() uint64 {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	return m.Alloc / (1024 * 1024)
+	return GetMemoryUsage() / (1024 * 1024)
 }
 
+// GetMemoryUsage returns the current memory usage in bytes.
+func GetMemoryUsage() uint64 {
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	return memStats.Alloc
+}
 func CRC32Checksum(data interface{}) int64 {
 	bt, err := json.Marshal(data)
 	if err != nil {

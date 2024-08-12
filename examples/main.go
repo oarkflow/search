@@ -10,10 +10,10 @@ import (
 )
 
 func main() {
-	bt := []byte(`{"filters":[],"query":"ONDANSETRON","condition":"","boolMode":"AND","exact":false,"tolerance":0,"relevance":{"k":0,"b":0,"d":0},"paginate":true,"offset":0,"limit":20,"lang":""}`)
+	bt := []byte(`{""query":"ONDANSETRON","paginate":true}`)
 	var params search.Params
 	json.Unmarshal(bt, &params)
-	icds := lib.ReadFileAsMap("sample.json")
+	icds := lib.ReadFileAsMap("billing-providers.json")
 	db, _ := search.New[map[string]any]()
 	var startTime = time.Now()
 	before := lib.Stats()

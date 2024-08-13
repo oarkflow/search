@@ -12,7 +12,7 @@ require (
 	github.com/oarkflow/squealx v0.0.19
 	github.com/oarkflow/xid v1.2.5
 	github.com/oarkflow/xsync v0.0.5
-	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
+	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa
 	golang.org/x/text v0.17.0
 )
 

@@ -1,12 +1,8 @@
 package storage
 
-/*
 import (
 	"errors"
-	"fmt"
-	"strings"
 
-	"github.com/oarkflow/filters"
 	"github.com/oarkflow/squealx"
 	"github.com/oarkflow/squealx/drivers/mssql"
 	"github.com/oarkflow/squealx/drivers/mysql"
@@ -15,11 +11,23 @@ import (
 
 // SQLDB represents a SQL database connection
 type SQLDB struct {
-	db *squealx.DB
+	db              *squealx.DB
+	listQuery       string
+	rowQuery        string
+	identifierField string
+	storeTable      string
+}
+
+type Config struct {
+	squealx.Config
+	listQuery       string
+	rowQuery        string
+	identifierField string
+	storeTable      string
 }
 
 // NewSQLDB creates a new SQLDB instance and connects to the database
-func NewSQLDB(config squealx.Config) (*SQLDB, error) {
+func NewSQLDB(config Config) (*SQLDB, error) {
 	dsn := config.ToString()
 	switch config.Driver {
 	case "mysql", "mariadb":
@@ -27,19 +35,19 @@ func NewSQLDB(config squealx.Config) (*SQLDB, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &SQLDB{db: db}, nil
+		return &SQLDB{db: db, listQuery: config.listQuery, rowQuery: config.rowQuery, identifierField: config.identifierField, storeTable: config.storeTable}, nil
 	case "postgres", "psql", "postgresql":
 		db, err := postgres.Open(dsn, "postgres")
 		if err != nil {
 			return nil, err
 		}
-		return &SQLDB{db: db}, nil
+		return &SQLDB{db: db, listQuery: config.listQuery, rowQuery: config.rowQuery, identifierField: config.identifierField, storeTable: config.storeTable}, nil
 	case "sql-server", "sqlserver", "mssql", "ms-sql":
 		db, err := mssql.Open(dsn, "mssql")
 		if err != nil {
 			return nil, err
 		}
-		return &SQLDB{db: db}, nil
+		return &SQLDB{db: db, listQuery: config.listQuery, rowQuery: config.rowQuery, identifierField: config.identifierField, storeTable: config.storeTable}, nil
 	}
 	return nil, errors.New("No acceptable driver provided")
 }
@@ -80,62 +88,13 @@ func (s *SQLDB) Name() string {
 
 // Sample retrieves a sample of key-value pairs based on the given parameters
 func (s *SQLDB) Sample(params SampleParams) (map[string]interface{}, error) {
-	query := "SELECT key, value FROM kv_store"
-	var conditions []string
-	var args []interface{}
-	argIndex := 1
-
-	// Add filters to the query
-	if params.Filters != nil {
-		for _, filter := range params.Filters {
-			condition, arg := filter.ToSQLCondition(argIndex)
-			conditions.append(conditions, condition)
-			args.append(args, arg)
-			argIndex++
-		}
+	if params.Size == 0 {
+		params.Size = 100
 	}
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-
-	// Add sorting to the query
-	if params.Sort != "" {
-		query += fmt.Sprintf(" ORDER BY key %s", params.Sort)
-	}
-
-	// Add limit to the query
-	if params.Size != 0 {
-		query += fmt.Sprintf(" LIMIT %d", params.Size)
-	}
-
-	rows, err := s.db.Queryx(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[string]interface{})
-	for rows.Next() {
-		var key string
-		var value interface{}
-		if err := rows.Scan(&key, &value); err != nil {
-			return nil, err
-		}
-		result[key] = value
-	}
-
-	return result, nil
+	return nil, nil
 }
 
 // Close closes the database connection
 func (s *SQLDB) Close() error {
 	return s.db.Close()
 }
-
-// Helper function to convert filters to SQL conditions
-func (f *filters.Filter) ToSQLCondition(argIndex int) (string, interface{}) {
-	// Implement filter to SQL conversion logic
-	// This is just a placeholder and needs to be implemented
-	return "", nil
-}
-*/

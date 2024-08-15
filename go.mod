@@ -4,7 +4,7 @@ go 1.22.3
 
 require (
 	github.com/oarkflow/date v0.0.4
-	github.com/oarkflow/filters v0.0.21
+	github.com/oarkflow/filters v0.0.24
 	github.com/oarkflow/frame v0.0.68
 	github.com/oarkflow/gopool v0.0.2
 	github.com/oarkflow/log v1.0.79
@@ -37,7 +37,7 @@ require (
 	github.com/microsoft/go-mssqldb v1.7.2 // indirect
 	github.com/nyaruka/phonenumbers v1.3.5 // indirect
 	github.com/oarkflow/convert v0.0.1 // indirect
-	github.com/oarkflow/dipper v0.0.5 // indirect
+	github.com/oarkflow/dipper v0.0.6 // indirect
 	github.com/oarkflow/errors v0.0.6 // indirect
 	github.com/oarkflow/expr v0.0.10 // indirect
 	github.com/oarkflow/json v0.0.8 // indirect
@@ -54,9 +54,9 @@ require (
 	github.com/toorop/go-dkim v0.0.0-20240103092955-90b7d1423f92 // indirect
 	github.com/xhit/go-simple-mail/v2 v2.16.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/crypto v0.24.0 // indirect
+	golang.org/x/crypto v0.26.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/sys v0.21.0 // indirect
+	golang.org/x/sys v0.23.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 )

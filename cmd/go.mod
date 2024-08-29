@@ -4,7 +4,7 @@ go 1.22.3
 
 replace github.com/oarkflow/search => ../
 
-require github.com/oarkflow/search v0.0.0-00010101000000-000000000000
+require github.com/oarkflow/search v0.0.47
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
@@ -28,21 +28,23 @@ require (
 	github.com/nyaruka/phonenumbers v1.3.5 // indirect
 	github.com/oarkflow/convert v0.0.1 // indirect
 	github.com/oarkflow/date v0.0.4 // indirect
-	github.com/oarkflow/dipper v0.0.2 // indirect
+	github.com/oarkflow/dipper v0.0.6 // indirect
 	github.com/oarkflow/errors v0.0.6 // indirect
 	github.com/oarkflow/expr v0.0.10 // indirect
-	github.com/oarkflow/filters v0.0.18 // indirect
+	github.com/oarkflow/filters v0.0.25 // indirect
+	github.com/oarkflow/flydb v0.0.1 // indirect
 	github.com/oarkflow/frame v0.0.68 // indirect
 	github.com/oarkflow/gopool v0.0.2 // indirect
 	github.com/oarkflow/json v0.0.8 // indirect
 	github.com/oarkflow/log v1.0.79 // indirect
 	github.com/oarkflow/metadata v0.0.64 // indirect
+	github.com/oarkflow/msgpack v0.0.1 // indirect
 	github.com/oarkflow/pkg v0.1.47 // indirect
 	github.com/oarkflow/protocol v0.0.16 // indirect
 	github.com/oarkflow/render v0.0.1 // indirect
 	github.com/oarkflow/squealx v0.0.19 // indirect
 	github.com/oarkflow/xid v1.2.5 // indirect
-	github.com/oarkflow/xsync v0.0.1 // indirect
+	github.com/oarkflow/xsync v0.0.5 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/shirou/gopsutil/v3 v3.24.2 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
@@ -51,13 +53,14 @@ require (
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/toorop/go-dkim v0.0.0-20240103092955-90b7d1423f92 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xhit/go-simple-mail/v2 v2.16.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/crypto v0.24.0 // indirect
-	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
-	golang.org/x/sync v0.7.0 // indirect
-	golang.org/x/sys v0.21.0 // indirect
-	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/crypto v0.26.0 // indirect
+	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa // indirect
+	golang.org/x/sync v0.8.0 // indirect
+	golang.org/x/sys v0.23.0 // indirect
+	golang.org/x/text v0.17.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 )

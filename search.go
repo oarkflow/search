@@ -2,6 +2,9 @@ package search
 
 import (
 	"fmt"
+	"github.com/oarkflow/search/storage/flydb"
+	"github.com/oarkflow/search/storage/mapof"
+	"github.com/oarkflow/search/storage/memdb"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -112,19 +115,21 @@ func (r Hits[Schema]) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
 func (r Hits[Schema]) Less(i, j int) bool { return r[i].Score > r[j].Score }
 
 type Config struct {
-	Key             string             `json:"key"`
-	DefaultLanguage tokenizer.Language `json:"default_language"`
-	TokenizerConfig *tokenizer.Config
-	IndexKeys       []string        `json:"index_keys"`
-	FieldsToStore   []string        `json:"fields_to_store"`
-	FieldsToExclude []string        `json:"fields_to_exclude"`
-	Rules           map[string]bool `json:"rules"`
-	SliceField      string          `json:"slice_field"`
-	Path            string          `json:"path"`
-	Compress        bool            `json:"compress"`
-	ResetPath       bool            `json:"reset_path"`
-	SampleSize      int             `json:"sample_size"`
-	IDGenerator     func(doc any) int64
+	Key                string             `json:"key"`
+	DefaultLanguage    tokenizer.Language `json:"default_language"`
+	TokenizerConfig    *tokenizer.Config
+	IndexKeys          []string        `json:"index_keys"`
+	FieldsToStore      []string        `json:"fields_to_store"`
+	FieldsToExclude    []string        `json:"fields_to_exclude"`
+	Rules              map[string]bool `json:"rules"`
+	SliceField         string          `json:"slice_field"`
+	Storage            string          `json:"storage"`
+	Path               string          `json:"path"`
+	Compress           bool            `json:"compress"`
+	ResetPath          bool            `json:"reset_path"`
+	MaxRecordsInMemory int             `json:"max_records_in_memory"`
+	SampleSize         int             `json:"sample_size"`
+	IDGenerator        func(doc any) int64
 }
 
 func defaultIDGenerator(doc any) int64 {
@@ -150,7 +155,17 @@ func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], erro
 	if c.SampleSize == 0 {
 		c.SampleSize = 20
 	}
-	return storage.NewMemDB[int64, Schema](c.SampleSize, storage.Int64Comparator)
+	if c.MaxRecordsInMemory == 0 {
+		c.MaxRecordsInMemory = 1000
+	}
+	switch c.Storage {
+	case "flydb":
+		return flydb.New[int64, Schema](c.Path, c.SampleSize)
+	case "memdb-persist":
+		return mapof.New[int64, Schema](c.Path, c.MaxRecordsInMemory, c.SampleSize, storage.Int64Comparator)
+	default:
+		return memdb.NewMemDB[int64, Schema](c.SampleSize, storage.Int64Comparator)
+	}
 }
 
 func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {

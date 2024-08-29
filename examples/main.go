@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	bt := []byte(`{""query":"ONDANSETRON","paginate":true}`)
+	bt := []byte(`{"query":"Evenchik","paginate":true}`)
 	var params search.Params
 	json.Unmarshal(bt, &params)
 	icds := lib.ReadFileAsMap("billing-providers.json")

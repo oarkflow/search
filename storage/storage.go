@@ -4,6 +4,18 @@ import (
 	"github.com/oarkflow/filters"
 )
 
+type Comparator[K any] func(a, b K) int
+
+func Int64Comparator(a, b int64) int {
+	if a < b {
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	return 0
+}
+
 type SampleParams struct {
 	Size    int
 	Filters []*filters.Filter

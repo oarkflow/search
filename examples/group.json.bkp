@@ -6,5 +6,9 @@
 	{
 		"path" : "./examples/icd10_codes.json",
 		"key": "icd10"
+	},
+	{
+		"path" : "./examples/cpt_codes.json",
+		"key": "icd"
 	}
 ]

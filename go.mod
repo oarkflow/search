@@ -5,10 +5,12 @@ go 1.22.3
 require (
 	github.com/oarkflow/date v0.0.4
 	github.com/oarkflow/filters v0.0.25
+	github.com/oarkflow/flydb v0.0.1
 	github.com/oarkflow/frame v0.0.68
 	github.com/oarkflow/gopool v0.0.2
 	github.com/oarkflow/log v1.0.79
 	github.com/oarkflow/metadata v0.0.64
+	github.com/oarkflow/msgpack v0.0.1
 	github.com/oarkflow/squealx v0.0.19
 	github.com/oarkflow/xid v1.2.5
 	github.com/oarkflow/xsync v0.0.5
@@ -52,6 +54,7 @@ require (
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/toorop/go-dkim v0.0.0-20240103092955-90b7d1423f92 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xhit/go-simple-mail/v2 v2.16.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/crypto v0.26.0 // indirect

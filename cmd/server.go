@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	
+
 	"github.com/oarkflow/search"
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/web"
@@ -61,7 +61,7 @@ func main() {
 
 func indexFile(path, key string) error {
 	data := lib.ReadFileAsMap(path)
-	engine, err := search.GetOrSetEngine[map[string]any](key, &search.Config{})
+	engine, err := search.GetOrSetEngine[map[string]any](key, &search.Config{Storage: "memdb-persist", Path: "fts"})
 	if err != nil {
 		return err
 	}

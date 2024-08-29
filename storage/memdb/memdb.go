@@ -1,7 +1,8 @@
-package storage
+package memdb
 
 import (
 	"fmt"
+	"github.com/oarkflow/search/storage"
 	"sort"
 	"strings"
 	"unsafe"
@@ -11,29 +12,17 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
-func Int64Comparator(a, b int64) int {
-	if a < b {
-		return -1
-	}
-	if a > b {
-		return 1
-	}
-	return 0
-}
-
 type hashable interface {
 	constraints.Integer | constraints.Float | constraints.Complex | ~string | uintptr | unsafe.Pointer
 }
 
-type Comparator[K any] func(a, b K) int
-
 type MemDB[K hashable, V any] struct {
 	client     maps.IMap[K, V]
 	sampleSize int
-	comparator Comparator[K]
+	comparator storage.Comparator[K]
 }
 
-func NewMemDB[K hashable, V any](sampleSize int, comparator Comparator[K]) (*MemDB[K, V], error) {
+func NewMemDB[K hashable, V any](sampleSize int, comparator storage.Comparator[K]) (*MemDB[K, V], error) {
 	return &MemDB[K, V]{client: maps.NewMap[K, V](), sampleSize: sampleSize, comparator: comparator}, nil
 }
 
@@ -63,7 +52,7 @@ func (m *MemDB[K, V]) ForEach(fn func(K, V) bool) {
 	m.client.ForEach(fn)
 }
 
-func (m *MemDB[K, V]) Sample(params SampleParams) (map[string]V, error) {
+func (m *MemDB[K, V]) Sample(params storage.SampleParams) (map[string]V, error) {
 	sz := m.sampleSize
 	if params.Size != 0 {
 		sz = params.Size

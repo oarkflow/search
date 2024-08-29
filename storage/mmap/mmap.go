@@ -11,12 +11,6 @@ import (
 	"github.com/oarkflow/search/storage/memdb"
 )
 
-// MapStats represents statistics of the map.
-type MapStats struct {
-	InMemory uint32
-	OnDisk   int
-}
-
 // MMap is an implementation of IMap using xsync and pogreb.
 type MMap[K storage.Hashable, V any] struct {
 	inMemory    *memdb.MemDB[K, V]
@@ -129,13 +123,6 @@ func (m *MMap[K, V]) Set(key K, value V) error {
 func (m *MMap[K, V]) Del(key K) error {
 	m.inMemory.Del(key)
 	return m.db.Del(fmt.Sprintf("%v", key))
-}
-
-// ForEach applies a function to each key-value pair in the map.
-func (m *MMap[K, V]) ForEach(f func(K, V) bool) {
-	m.inMemory.ForEach(func(key K, value V) bool {
-		return f(key, value)
-	})
 }
 
 // Clear clears all entries from the map.

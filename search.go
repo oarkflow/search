@@ -258,10 +258,6 @@ func (db *Engine[Schema]) Storage() storage.Store[int64, Schema] {
 	return db.documentStorage
 }
 
-func (db *Engine[Schema]) ForEach(fn func(key int64, val Schema) bool) {
-	db.documentStorage.ForEach(fn)
-}
-
 func (db *Engine[Schema]) buildIndexes() {
 	var s Schema
 	for key := range db.flattenSchema(s) {

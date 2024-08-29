@@ -46,10 +46,6 @@ func (s *FlyDB[K, V]) Del(key K) error {
 	return s.client.Delete([]byte(k))
 }
 
-func (s *FlyDB[K, V]) ForEach(fn func(K, V) bool) {
-	panic("implement me")
-}
-
 // Sample removes a key-value pair from disk
 func (s *FlyDB[K, V]) Sample(params storage.SampleParams) (map[string]V, error) {
 	sz := s.sampleSize

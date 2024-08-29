@@ -43,10 +43,6 @@ func (m *MemDB[K, V]) Len() uint32 {
 	return uint32(m.client.Size())
 }
 
-func (m *MemDB[K, V]) ForEach(fn func(K, V) bool) {
-	m.client.ForEach(fn)
-}
-
 func (m *MemDB[K, V]) Sample(params storage.SampleParams) (map[string]V, error) {
 	sz := m.sampleSize
 	if params.Size != 0 {

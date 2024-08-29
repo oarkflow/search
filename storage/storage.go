@@ -19,5 +19,6 @@ type Store[K comparable, V any] interface {
 	Len() uint32
 	Name() string
 	Sample(params SampleParams) (map[string]V, error)
+	ForEach(func(K, V) bool)
 	Close() error
 }

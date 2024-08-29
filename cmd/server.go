@@ -61,7 +61,7 @@ func main() {
 
 func indexFile(path, key string) error {
 	data := lib.ReadFileAsMap(path)
-	engine, err := search.GetOrSetEngine[map[string]any](key, &search.Config{Storage: "memdb-persist", Path: "fts"})
+	engine, err := search.GetOrSetEngine[map[string]any](key, &search.Config{Storage: "memdb", Path: "fts"})
 	if err != nil {
 		return err
 	}

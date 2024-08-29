@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/oarkflow/search/storage/flydb"
 	"github.com/oarkflow/search/storage/memdb"
@@ -119,6 +120,8 @@ type Config struct {
 	Key                string             `json:"key"`
 	DefaultLanguage    tokenizer.Language `json:"default_language"`
 	TokenizerConfig    *tokenizer.Config
+	CleanupPeriod      time.Duration   `json:"cleanup_period"`
+	EvictionDuration   time.Duration   `json:"eviction_duration"`
 	IndexKeys          []string        `json:"index_keys"`
 	FieldsToStore      []string        `json:"fields_to_store"`
 	FieldsToExclude    []string        `json:"fields_to_exclude"`
@@ -162,8 +165,15 @@ func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], erro
 	switch c.Storage {
 	case "flydb":
 		return flydb.New[int64, Schema](c.Path, c.SampleSize)
-	case "memdb-persist":
-		return mmap.New[int64, Schema](c.Path, c.MaxRecordsInMemory, c.SampleSize, storage.Int64Comparator)
+	case "memdb":
+		cfg := mmap.Config{
+			Path:               c.Path,
+			SampleSize:         c.SampleSize,
+			CleanupPeriod:      c.CleanupPeriod,
+			EvictionDuration:   c.EvictionDuration,
+			MaxRecordsInMemory: c.MaxRecordsInMemory,
+		}
+		return mmap.New[int64, Schema](cfg, storage.Int64Comparator)
 	default:
 		return memdb.New[int64, Schema](c.SampleSize, storage.Int64Comparator)
 	}

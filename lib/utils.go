@@ -7,6 +7,8 @@ import (
 	"os"
 	"runtime"
 	"unsafe"
+
+	"github.com/oarkflow/msgpack"
 )
 
 func ToString(value interface{}) string {
@@ -46,4 +48,23 @@ func CRC32Checksum(data interface{}) int64 {
 	table := crc32.MakeTable(crc32.IEEE)
 	checksum := crc32.Checksum(bt, table)
 	return int64(checksum)
+}
+
+// Encode and decode functions to handle type serialization.
+func Encode[V any](value V) []byte {
+	jsonData, err := msgpack.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	return jsonData
+}
+
+func Decode[V any](data []byte) V {
+	var value V
+	err := msgpack.Unmarshal(data, &value)
+	if err != nil {
+		panic(err)
+		return *new(V)
+	}
+	return value
 }

@@ -6,15 +6,16 @@ import (
 	"github.com/oarkflow/filters"
 	"github.com/oarkflow/flydb"
 	"github.com/oarkflow/msgpack"
+
 	"github.com/oarkflow/search/storage"
 )
 
-type FlyDB[K comparable, V any] struct {
+type FlyDB[K storage.Hashable, V any] struct {
 	client     *flydb.DB[[]byte, []byte]
 	sampleSize int
 }
 
-func New[K comparable, V any](basePath string, sampleSize int) (*FlyDB[K, V], error) {
+func New[K storage.Hashable, V any](basePath string, sampleSize int) (*FlyDB[K, V], error) {
 	client, err := flydb.Open[[]byte, []byte](basePath, nil)
 	if err != nil {
 		return nil, err

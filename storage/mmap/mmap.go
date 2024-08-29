@@ -3,15 +3,12 @@ package mmap
 import (
 	"fmt"
 	"log"
-	"sort"
-	"strings"
 
-	"github.com/oarkflow/filters"
 	"github.com/oarkflow/msgpack"
-	"github.com/oarkflow/xsync"
 
 	"github.com/oarkflow/search/storage"
 	"github.com/oarkflow/search/storage/flydb"
+	"github.com/oarkflow/search/storage/memdb"
 )
 
 // MapStats represents statistics of the map.
@@ -21,8 +18,8 @@ type MapStats struct {
 }
 
 // MMap is an implementation of IMap using xsync and pogreb.
-type MMap[K comparable, V any] struct {
-	inMemory    *xsync.MapOf[K, V]
+type MMap[K storage.Hashable, V any] struct {
+	inMemory    *memdb.MemDB[K, V]
 	db          *flydb.FlyDB[string, []byte]
 	comparator  storage.Comparator[K]
 	path        string
@@ -32,7 +29,7 @@ type MMap[K comparable, V any] struct {
 }
 
 func (m *MMap[K, V]) Len() uint32 {
-	return uint32(m.inMemory.Size()) + m.db.Len()
+	return m.inMemory.Len() + m.db.Len()
 }
 
 func (m *MMap[K, V]) Name() string {
@@ -40,7 +37,7 @@ func (m *MMap[K, V]) Name() string {
 }
 
 func (m *MMap[K, V]) Sample(params storage.SampleParams) (map[string]V, error) {
-	records, err := m.sampleFromMemory(params)
+	records, err := m.inMemory.Sample(params)
 	if err != nil {
 		return nil, err
 	}
@@ -66,19 +63,22 @@ func (m *MMap[K, V]) Sample(params storage.SampleParams) (map[string]V, error) {
 }
 
 func (m *MMap[K, V]) Close() error {
-	m.inMemory.Clear()
+	m.inMemory.Close()
 	return m.db.Close()
 }
 
 // New creates a new MMap instance.
-func New[K comparable, V any](dbPath string, maxInMemory, sampleSize int, comparator storage.Comparator[K]) (*MMap[K, V], error) {
+func New[K storage.Hashable, V any](dbPath string, maxInMemory, sampleSize int, comparator storage.Comparator[K]) (*MMap[K, V], error) {
 	db, err := flydb.New[string, []byte](dbPath, maxInMemory)
 	if err != nil {
 		return nil, err
 	}
-
+	store, err := memdb.New[K, V](sampleSize, comparator)
+	if err != nil {
+		return nil, err
+	}
 	return &MMap[K, V]{
-		inMemory:    xsync.NewMap[K, V](),
+		inMemory:    store,
 		db:          db,
 		maxInMemory: maxInMemory,
 		sampleSize:  sampleSize,
@@ -112,59 +112,6 @@ func (m *MMap[K, V]) Get(key K) (V, bool) {
 	return zeroValue, false
 }
 
-func (m *MMap[K, V]) sampleFromMemory(params storage.SampleParams) (map[string]V, error) {
-	sz := m.sampleSize
-	if params.Size != 0 {
-		sz = params.Size
-	}
-	value := make(map[string]V)
-	var keys []K
-	var conditions []filters.Condition
-	for _, f := range params.Filters {
-		conditions = append(conditions, f)
-	}
-	// Collect matching keys
-	m.inMemory.ForEach(func(key K, val V) bool {
-		matched := false
-		if params.Rule == nil && params.Filters == nil {
-			matched = true
-		} else if params.Rule != nil {
-			if params.Rule.Match(val) {
-				matched = true
-			}
-		} else if filters.MatchGroup(val, &filters.FilterGroup{Operator: filters.AND, Filters: conditions}) {
-			matched = true
-		}
-		if matched {
-			keys = append(keys, key)
-		}
-		return true
-	})
-	if params.Sort == "" || strings.ToLower(params.Sort) == "asc" {
-		sort.Slice(keys, func(i, j int) bool {
-			return m.comparator(keys[i], keys[j]) < 0
-		})
-	} else if strings.ToLower(params.Sort) == "desc" {
-		sort.Slice(keys, func(i, j int) bool {
-			return m.comparator(keys[i], keys[j]) > 0
-		})
-	}
-
-	// Collect values for sorted keys
-	count := 0
-	for _, key := range keys {
-		if count >= sz {
-			break
-		}
-		val, _ := m.inMemory.Get(key)
-		tmp := fmt.Sprint(key)
-		value[tmp] = val
-		count++
-	}
-
-	return value, nil
-}
-
 // Set sets a value in the map.
 func (m *MMap[K, V]) Set(key K, value V) error {
 	m.inMemory.Set(key, value)
@@ -193,7 +140,11 @@ func (m *MMap[K, V]) ForEach(f func(K, V) bool) {
 
 // Clear clears all entries from the map.
 func (m *MMap[K, V]) Clear() {
-	m.inMemory = xsync.NewMap[K, V]()
+	store, err := memdb.New[K, V](m.sampleSize, m.comparator)
+	if err != nil {
+		return
+	}
+	m.inMemory = store
 	m.evictList = make([]K, 0)
 	m.db = nil // Close and reopen db to clear it
 	db, err := flydb.New[string, []byte](m.path, 100)

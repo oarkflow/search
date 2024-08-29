@@ -165,7 +165,7 @@ func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], erro
 	case "memdb-persist":
 		return mmap.New[int64, Schema](c.Path, c.MaxRecordsInMemory, c.SampleSize, storage.Int64Comparator)
 	default:
-		return memdb.NewMemDB[int64, Schema](c.SampleSize, storage.Int64Comparator)
+		return memdb.New[int64, Schema](c.SampleSize, storage.Int64Comparator)
 	}
 }
 

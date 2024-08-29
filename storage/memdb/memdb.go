@@ -2,27 +2,22 @@ package memdb
 
 import (
 	"fmt"
-	"github.com/oarkflow/search/storage"
 	"sort"
 	"strings"
-	"unsafe"
+
+	"github.com/oarkflow/search/storage"
 
 	"github.com/oarkflow/filters"
 	maps "github.com/oarkflow/xsync"
-	"golang.org/x/exp/constraints"
 )
 
-type hashable interface {
-	constraints.Integer | constraints.Float | constraints.Complex | ~string | uintptr | unsafe.Pointer
-}
-
-type MemDB[K hashable, V any] struct {
+type MemDB[K storage.Hashable, V any] struct {
 	client     maps.IMap[K, V]
 	sampleSize int
 	comparator storage.Comparator[K]
 }
 
-func NewMemDB[K hashable, V any](sampleSize int, comparator storage.Comparator[K]) (*MemDB[K, V], error) {
+func New[K storage.Hashable, V any](sampleSize int, comparator storage.Comparator[K]) (*MemDB[K, V], error) {
 	return &MemDB[K, V]{client: maps.NewMap[K, V](), sampleSize: sampleSize, comparator: comparator}, nil
 }
 

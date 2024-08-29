@@ -10,11 +10,11 @@ import (
 )
 
 func main() {
-	bt := []byte(`{"query":"Evenchik","paginate":true}`)
+	bt := []byte(`{"query":"PROTOPORPHYRIN"}`)
 	var params search.Params
 	json.Unmarshal(bt, &params)
-	icds := lib.ReadFileAsMap("billing-providers.json")
-	db, _ := search.New[map[string]any]()
+	icds := lib.ReadFileAsMap("sample.json")
+	db, _ := search.New[map[string]any](&search.Config{Storage: "memdb-persist", Path: "fts"})
 	var startTime = time.Now()
 	before := lib.Stats()
 	db.InsertWithPool(icds, 3, 100)

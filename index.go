@@ -1,6 +1,8 @@
 package search
 
 import (
+	"sync"
+
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/radix"
 )
@@ -14,17 +16,12 @@ type FindParams struct {
 	DocsCount int
 }
 
-type IndexParams struct {
-	Id        int64
-	Tokens    map[string]int
-	DocsCount int
-}
-
 type Index struct {
 	data             *radix.Trie
 	avgFieldLength   float64
 	fieldLengths     map[int64]int
 	tokenOccurrences map[string]int
+	mu               sync.RWMutex // Use a mutex for thread safety
 }
 
 func NewIndex() *Index {
@@ -36,6 +33,8 @@ func NewIndex() *Index {
 }
 
 func (idx *Index) Insert(id int64, tokens map[string]int, docsCount int) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 	totalTokens := len(tokens)
 	for token, count := range tokens {
 		tokenFrequency := float64(count) / float64(totalTokens)
@@ -47,6 +46,8 @@ func (idx *Index) Insert(id int64, tokens map[string]int, docsCount int) {
 }
 
 func (idx *Index) Delete(id int64, tokens map[string]int, docsCount int) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 	for token := range tokens {
 		idx.data.Delete(id, token)
 		idx.tokenOccurrences[token]--
@@ -60,6 +61,9 @@ func (idx *Index) Delete(id int64, tokens map[string]int, docsCount int) {
 }
 
 func (idx *Index) Find(params *FindParams) map[int64]float64 {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
 	idScores := make(map[int64]float64)
 	idTokensCount := make(map[int64]int)
 	for token := range params.Tokens {

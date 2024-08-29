@@ -2,9 +2,6 @@ package search
 
 import (
 	"fmt"
-	"github.com/oarkflow/search/storage/flydb"
-	"github.com/oarkflow/search/storage/mapof"
-	"github.com/oarkflow/search/storage/memdb"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/oarkflow/search/storage/flydb"
+	"github.com/oarkflow/search/storage/memdb"
+	"github.com/oarkflow/search/storage/mmap"
 
 	"github.com/oarkflow/gopool"
 	"github.com/oarkflow/log"
@@ -156,13 +157,13 @@ func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], erro
 		c.SampleSize = 20
 	}
 	if c.MaxRecordsInMemory == 0 {
-		c.MaxRecordsInMemory = 1000
+		c.MaxRecordsInMemory = 100
 	}
 	switch c.Storage {
 	case "flydb":
 		return flydb.New[int64, Schema](c.Path, c.SampleSize)
 	case "memdb-persist":
-		return mapof.New[int64, Schema](c.Path, c.MaxRecordsInMemory, c.SampleSize, storage.Int64Comparator)
+		return mmap.New[int64, Schema](c.Path, c.MaxRecordsInMemory, c.SampleSize, storage.Int64Comparator)
 	default:
 		return memdb.NewMemDB[int64, Schema](c.SampleSize, storage.Int64Comparator)
 	}

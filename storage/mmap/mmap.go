@@ -1,15 +1,17 @@
-package mapof
+package mmap
 
 import (
 	"fmt"
-	"github.com/oarkflow/filters"
-	"github.com/oarkflow/msgpack"
-	"github.com/oarkflow/search/storage"
-	"github.com/oarkflow/search/storage/flydb"
-	"github.com/oarkflow/xsync"
 	"log"
 	"sort"
 	"strings"
+
+	"github.com/oarkflow/filters"
+	"github.com/oarkflow/msgpack"
+	"github.com/oarkflow/xsync"
+
+	"github.com/oarkflow/search/storage"
+	"github.com/oarkflow/search/storage/flydb"
 )
 
 // MapStats represents statistics of the map.
@@ -18,8 +20,8 @@ type MapStats struct {
 	OnDisk   int
 }
 
-// MapOf is an implementation of IMap using xsync and pogreb.
-type MapOf[K comparable, V any] struct {
+// MMap is an implementation of IMap using xsync and pogreb.
+type MMap[K comparable, V any] struct {
 	inMemory    *xsync.MapOf[K, V]
 	db          *flydb.FlyDB[string, []byte]
 	comparator  storage.Comparator[K]
@@ -29,15 +31,15 @@ type MapOf[K comparable, V any] struct {
 	evictList   []K
 }
 
-func (m *MapOf[K, V]) Len() uint32 {
+func (m *MMap[K, V]) Len() uint32 {
 	return uint32(m.inMemory.Size()) + m.db.Len()
 }
 
-func (m *MapOf[K, V]) Name() string {
+func (m *MMap[K, V]) Name() string {
 	return "memdb-persist"
 }
 
-func (m *MapOf[K, V]) Sample(params storage.SampleParams) (map[string]V, error) {
+func (m *MMap[K, V]) Sample(params storage.SampleParams) (map[string]V, error) {
 	records, err := m.sampleFromMemory(params)
 	if err != nil {
 		return nil, err
@@ -63,19 +65,19 @@ func (m *MapOf[K, V]) Sample(params storage.SampleParams) (map[string]V, error) 
 	return records, nil
 }
 
-func (m *MapOf[K, V]) Close() error {
+func (m *MMap[K, V]) Close() error {
 	m.inMemory.Clear()
 	return m.db.Close()
 }
 
-// New creates a new MapOf instance.
-func New[K comparable, V any](dbPath string, maxInMemory, sampleSize int, comparator storage.Comparator[K]) (*MapOf[K, V], error) {
+// New creates a new MMap instance.
+func New[K comparable, V any](dbPath string, maxInMemory, sampleSize int, comparator storage.Comparator[K]) (*MMap[K, V], error) {
 	db, err := flydb.New[string, []byte](dbPath, maxInMemory)
 	if err != nil {
 		return nil, err
 	}
 
-	return &MapOf[K, V]{
+	return &MMap[K, V]{
 		inMemory:    xsync.NewMap[K, V](),
 		db:          db,
 		maxInMemory: maxInMemory,
@@ -87,7 +89,7 @@ func New[K comparable, V any](dbPath string, maxInMemory, sampleSize int, compar
 }
 
 // Get retrieves a value from the map.
-func (m *MapOf[K, V]) Get(key K) (V, bool) {
+func (m *MMap[K, V]) Get(key K) (V, bool) {
 	if value, ok := m.inMemory.Get(key); ok {
 		return value, true
 	}
@@ -110,7 +112,7 @@ func (m *MapOf[K, V]) Get(key K) (V, bool) {
 	return zeroValue, false
 }
 
-func (m *MapOf[K, V]) sampleFromMemory(params storage.SampleParams) (map[string]V, error) {
+func (m *MMap[K, V]) sampleFromMemory(params storage.SampleParams) (map[string]V, error) {
 	sz := m.sampleSize
 	if params.Size != 0 {
 		sz = params.Size
@@ -164,7 +166,7 @@ func (m *MapOf[K, V]) sampleFromMemory(params storage.SampleParams) (map[string]
 }
 
 // Set sets a value in the map.
-func (m *MapOf[K, V]) Set(key K, value V) error {
+func (m *MMap[K, V]) Set(key K, value V) error {
 	m.inMemory.Set(key, value)
 	m.evictList = append(m.evictList, key)
 	if len(m.evictList) > m.maxInMemory {
@@ -177,20 +179,20 @@ func (m *MapOf[K, V]) Set(key K, value V) error {
 }
 
 // Del deletes the key from the map.
-func (m *MapOf[K, V]) Del(key K) error {
+func (m *MMap[K, V]) Del(key K) error {
 	m.inMemory.Del(key)
 	return m.db.Del(fmt.Sprintf("%v", key))
 }
 
 // ForEach applies a function to each key-value pair in the map.
-func (m *MapOf[K, V]) ForEach(f func(K, V) bool) {
+func (m *MMap[K, V]) ForEach(f func(K, V) bool) {
 	m.inMemory.ForEach(func(key K, value V) bool {
 		return f(key, value)
 	})
 }
 
 // Clear clears all entries from the map.
-func (m *MapOf[K, V]) Clear() {
+func (m *MMap[K, V]) Clear() {
 	m.inMemory = xsync.NewMap[K, V]()
 	m.evictList = make([]K, 0)
 	m.db = nil // Close and reopen db to clear it

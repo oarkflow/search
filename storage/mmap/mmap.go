@@ -114,12 +114,6 @@ func New[K storage.Hashable, V any](cfg Config, comparator storage.Comparator[K]
 	if err != nil {
 		return nil, err
 	}
-	if cfg.CleanupPeriod == 0 {
-		cfg.CleanupPeriod = 5 * time.Minute
-	}
-	if cfg.EvictionDuration == 0 {
-		cfg.EvictionDuration = 30 * time.Minute
-	}
 	mmap := &MMap[K, V]{
 		inMemory:      store,
 		db:            db,

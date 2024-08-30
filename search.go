@@ -207,6 +207,12 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 			return nil, err
 		}
 	}
+	if c.CleanupPeriod == 0 {
+		c.CleanupPeriod = 5 * time.Minute
+	}
+	if c.EvictionDuration == 0 {
+		c.EvictionDuration = 30 * time.Minute
+	}
 	store, err := getStore[Schema](c)
 	if err != nil {
 		return nil, err
@@ -597,7 +603,7 @@ func (db *Engine[Schema]) sampleWithFilters(params storage.SampleParams) (Result
 }
 
 func (db *Engine[Schema]) addIndex(key string) {
-	db.indexes.Set(key, NewIndex())
+	db.indexes.Set(key, NewIndex(db.cfg.EvictionDuration, db.cfg.CleanupPeriod, fmt.Sprintf("%s.json", db.key)))
 	db.indexKeys = lib.Unique(append(db.indexKeys, key))
 }
 

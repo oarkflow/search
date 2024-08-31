@@ -5,30 +5,30 @@ import (
 )
 
 type Trie struct {
-	root   *node
-	length int
+	Root   *node
+	Length int
 }
 
 func New() *Trie {
-	return &Trie{root: newNode(nil)}
+	return &Trie{Root: newNode(nil)}
 }
 
 func (t *Trie) Len() int {
-	return t.length
+	return t.Length
 }
 
 func (t *Trie) Insert(id int64, token string, freq float64) {
 	word := []rune(token)
-	currNode := t.root
+	currNode := t.Root
 
 	i := 0
 	for i < len(word) {
 		currentRune := word[i]
-		if currChild, ok := currNode.children[currentRune]; ok {
+		if currChild, ok := currNode.Children[currentRune]; ok {
 			// Find common prefix length without allocation
-			commonPrefix, _ := lib.CommonPrefix(currChild.subword, word[i:])
+			commonPrefix, _ := lib.CommonPrefix(currChild.Subword, word[i:])
 			commonPrefixLength := len(commonPrefix)
-			subwordLength := len(currChild.subword)
+			subwordLength := len(currChild.Subword)
 			wordLength := len(word[i:])
 
 			if commonPrefixLength == wordLength && commonPrefixLength == subwordLength {
@@ -40,11 +40,11 @@ func (t *Trie) Insert(id int64, token string, freq float64) {
 				n := newNode(word[i:])
 				n.addData(id, freq)
 
-				currChild.subword = currChild.subword[commonPrefixLength:]
+				currChild.Subword = currChild.Subword[commonPrefixLength:]
 				n.addChild(currChild)
 				currNode.addChild(n)
 
-				t.length++
+				t.Length++
 				return
 			}
 
@@ -55,11 +55,11 @@ func (t *Trie) Insert(id int64, token string, freq float64) {
 				inBetweenNode := newNode(word[i : i+commonPrefixLength])
 				currNode.addChild(inBetweenNode)
 
-				currChild.subword = currChild.subword[commonPrefixLength:]
+				currChild.Subword = currChild.Subword[commonPrefixLength:]
 				inBetweenNode.addChild(currChild)
 				inBetweenNode.addChild(n)
 
-				t.length++
+				t.Length++
 				return
 			}
 
@@ -70,7 +70,7 @@ func (t *Trie) Insert(id int64, token string, freq float64) {
 			n.addData(id, freq)
 
 			currNode.addChild(n)
-			t.length++
+			t.Length++
 			return
 		}
 	}
@@ -79,35 +79,35 @@ func (t *Trie) Insert(id int64, token string, freq float64) {
 
 func (t *Trie) Delete(id int64, token string) {
 	word := []rune(token)
-	currNode := t.root
+	currNode := t.Root
 
 	for i := 0; i < len(word); {
 		char := word[i]
 		wordAtIndex := word[i:]
 
-		if currChild, ok := currNode.children[char]; ok {
-			if _, eq := lib.CommonPrefix(currChild.subword, wordAtIndex); eq {
+		if currChild, ok := currNode.Children[char]; ok {
+			if _, eq := lib.CommonPrefix(currChild.Subword, wordAtIndex); eq {
 				currChild.removeData(id)
 
-				if len(currChild.infos) == 0 {
-					switch len(currChild.children) {
+				if len(currChild.Infos) == 0 {
+					switch len(currChild.Children) {
 					case 0:
 						// if the node to be deleted has no children, delete it
 						currNode.removeChild(currChild)
-						t.length--
+						t.Length--
 					case 1:
 						// if the node to be deleted has one child, promote it to the parent node
-						for _, child := range currChild.children {
+						for _, child := range currChild.Children {
 							mergeNodes(currChild, child)
 						}
-						t.length--
+						t.Length--
 					}
 				}
 				return
 			}
 
 			// skip to the next divergent character
-			i += len(currChild.subword)
+			i += len(currChild.Subword)
 
 			// navigate in the child node
 			currNode = currChild
@@ -121,19 +121,19 @@ func (t *Trie) Delete(id int64, token string) {
 
 func (t *Trie) Find(token string, tolerance int, exact bool) map[int64]float64 {
 	term := []rune(token)
-	currNode := t.root
-	currNodeWord := currNode.subword
+	currNode := t.Root
+	currNodeWord := currNode.Subword
 
 	for i := 0; i < len(term); {
 		char := term[i]
 		wordAtIndex := term[i:]
-		currChild, ok := currNode.children[char]
+		currChild, ok := currNode.Children[char]
 		if !ok {
 			return nil
 		}
-		commonPrefix, _ := lib.CommonPrefix(currChild.subword, wordAtIndex)
+		commonPrefix, _ := lib.CommonPrefix(currChild.Subword, wordAtIndex)
 		commonPrefixLength := len(commonPrefix)
-		subwordLength := len(currChild.subword)
+		subwordLength := len(currChild.Subword)
 		wordLength := len(wordAtIndex)
 
 		// if the common prefix length is equal to the node subword length it means they are a match
@@ -146,7 +146,7 @@ func (t *Trie) Find(token string, tolerance int, exact bool) map[int64]float64 {
 		}
 		i += subwordLength
 		currNode = currChild
-		currNodeWord = append(currNodeWord, currChild.subword...)
+		currNodeWord = append(currNodeWord, currChild.Subword...)
 	}
 
 	return currNode.findData(currNodeWord, term, tolerance, exact)

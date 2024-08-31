@@ -7,20 +7,20 @@ import (
 )
 
 type node struct {
-	subword  []rune
-	children map[rune]*node
-	infos    map[int64]float64
+	Subword  []rune            `json:"subword"`
+	Children map[rune]*node    `json:"children"`
+	Infos    map[int64]float64 `json:"infos"`
 }
 
 func newNode(subword []rune) *node {
 	n := nodePool.Get()
-	n.subword = subword
+	n.Subword = subword
 	// Clear the maps (or reinitialize if needed)
-	for k := range n.children {
-		delete(n.children, k)
+	for k := range n.Children {
+		delete(n.Children, k)
 	}
-	for k := range n.infos {
-		delete(n.infos, k)
+	for k := range n.Infos {
+		delete(n.Infos, k)
 	}
 	return n
 }
@@ -30,23 +30,23 @@ func (n *node) putNode() {
 }
 
 func (n *node) addData(id int64, frequency float64) {
-	n.infos[id] = frequency
+	n.Infos[id] = frequency
 }
 
 func (n *node) addChild(child *node) {
-	if len(child.subword) > 0 {
-		n.children[child.subword[0]] = child
+	if len(child.Subword) > 0 {
+		n.Children[child.Subword[0]] = child
 	}
 }
 
 func (n *node) removeChild(child *node) {
-	if len(child.subword) > 0 {
-		delete(n.children, child.subword[0])
+	if len(child.Subword) > 0 {
+		delete(n.Children, child.Subword[0])
 	}
 }
 
 func (n *node) removeData(id int64) {
-	delete(n.infos, id)
+	delete(n.Infos, id)
 }
 
 func (n *node) findData(word []rune, term []rune, tolerance int, exact bool) map[int64]float64 {
@@ -63,14 +63,14 @@ func (n *node) findData(word []rune, term []rune, tolerance int, exact bool) map
 
 		if tolerance > 0 {
 			if _, isBounded := lib.BoundedLevenshtein(currWord, term, tolerance); isBounded {
-				maps.Copy(results, currNode.infos)
+				maps.Copy(results, currNode.Infos)
 			}
 		} else {
-			maps.Copy(results, currNode.infos)
+			maps.Copy(results, currNode.Infos)
 		}
 
-		for _, child := range currNode.children {
-			stack = append(stack, [2]interface{}{child, append(currWord, child.subword...)})
+		for _, child := range currNode.Children {
+			stack = append(stack, [2]interface{}{child, append(currWord, child.Subword...)})
 		}
 	}
 	n.putNode()
@@ -78,7 +78,7 @@ func (n *node) findData(word []rune, term []rune, tolerance int, exact bool) map
 }
 
 func mergeNodes(a *node, b *node) {
-	a.subword = append(a.subword, b.subword...)
-	a.infos = b.infos
-	a.children = b.children
+	a.Subword = append(a.Subword, b.Subword...)
+	a.Infos = b.Infos
+	a.Children = b.Children
 }

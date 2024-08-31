@@ -12,3 +12,4 @@ bin
 storage/fts
 *.frame.gz
 fts-storage
+documentStorage

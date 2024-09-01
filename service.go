@@ -16,7 +16,7 @@ func init() {
 	engines = maps.NewMap[string, any]()
 }
 
-var DefaultPath = "documentStorage/fts"
+var DefaultPath = "fts"
 
 func GetConfig(key string) *Config {
 	return &Config{

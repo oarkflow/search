@@ -1,6 +1,7 @@
 package search
 
 import (
+	"bufio"
 	"io"
 	"os"
 	"path/filepath"
@@ -38,8 +39,6 @@ type Index struct {
 }
 
 func NewIndex(prefix, id string) *Index {
-	dir := filepath.Join(indexDir, prefix)
-	os.RemoveAll(dir)
 	return &Index{
 		Data:             radix.New(prefix, id),
 		FieldLengths:     make(map[int64]int),
@@ -112,12 +111,11 @@ func (idx *Index) FileName() string {
 }
 
 func filename(prefix, id string) string {
-	prefix = filepath.Join(indexDir, prefix)
+	prefix = filepath.Join(DefaultPath, prefix, indexDir)
 	os.MkdirAll(prefix, os.ModePerm)
 	return filepath.Join(prefix, id+extension)
 }
 
-// Save saves the entire trie to a file using MessagePack
 func (idx *Index) Save() error {
 	filePath := idx.FileName()
 	file, err := os.Create(filePath)
@@ -125,12 +123,13 @@ func (idx *Index) Save() error {
 		return err
 	}
 	defer file.Close()
+	bufferedWriter := bufio.NewWriter(file)
+	defer bufferedWriter.Flush()
 
-	encoder := msgpack.NewEncoder(file)
+	encoder := msgpack.NewEncoder(bufferedWriter)
 	return encoder.Encode(idx)
 }
 
-// Load saves the entire trie to a file using MessagePack
 func (idx *Index) Load() (*Index, error) {
 	filePath := idx.FileName()
 	return NewFromFile(idx.Prefix, filePath)
@@ -142,7 +141,11 @@ func NewFromFile(prefix string, filePath string) (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewFromReader(file, prefix)
+	defer file.Close()
+
+	// Use a buffered reader to improve read performance
+	bufferedReader := bufio.NewReader(file)
+	return NewFromReader(bufferedReader, prefix)
 }
 
 func NewFromReader(reader io.Reader, prefix string) (*Index, error) {

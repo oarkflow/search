@@ -62,7 +62,14 @@ func main() {
 
 func indexFile(path, key string) error {
 	data := lib.ReadFileAsMap(path)
-	engine, err := search.GetOrSetEngine[map[string]any](key, &search.Config{Storage: "mmap", Key: key, CleanupPeriod: 2 * time.Minute, EvictionDuration: 3 * time.Minute})
+	engine, err := search.GetOrSetEngine[map[string]any](key, &search.Config{
+		Storage:          "mmap",
+		Key:              key,
+		CleanupPeriod:    2 * time.Minute,
+		EvictionDuration: 3 * time.Minute,
+		ResetPath:        true,
+		OffloadIndex:     true,
+	})
 	if err != nil {
 		return err
 	}

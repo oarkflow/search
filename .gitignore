@@ -14,3 +14,4 @@ storage/fts
 fts-storage
 documentStorage
 *.index
+fts

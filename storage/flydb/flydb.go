@@ -12,6 +12,7 @@ import (
 
 type FlyDB[K storage.Hashable, V any] struct {
 	client     *flydb.DB[[]byte, []byte]
+	onEviction func(K, V)
 	sampleSize int
 }
 
@@ -95,6 +96,14 @@ func (s *FlyDB[K, V]) Sample(params storage.SampleParams) (map[string]V, error) 
 		}
 	}
 	return value, nil
+}
+
+func (s *FlyDB[K, V]) SetEvictionHandler(onEviction func(K, V)) {
+	s.onEviction = onEviction
+}
+
+func (s *FlyDB[K, V]) EvictionHandler() func(K, V) {
+	return s.onEviction
 }
 
 // Close removes a key-value pair from disk

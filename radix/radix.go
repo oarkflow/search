@@ -1,18 +1,23 @@
 package radix
 
 import (
-	"github.com/oarkflow/msgpack"
-	"github.com/oarkflow/search/lib"
+	"io"
 	"os"
+
+	"github.com/oarkflow/msgpack"
+	"github.com/oarkflow/xid"
+
+	"github.com/oarkflow/search/lib"
 )
 
 type Trie struct {
+	ID     string
 	Root   *node
 	Length int
 }
 
-func New() *Trie {
-	return &Trie{Root: newNode(nil)}
+func New(id string) *Trie {
+	return &Trie{Root: newNode(nil), ID: id}
 }
 
 func (t *Trie) Len() int {
@@ -125,7 +130,6 @@ func (t *Trie) Find(token string, tolerance int, exact bool) map[int64]float64 {
 	term := []rune(token)
 	currNode := t.Root
 	currNodeWord := currNode.Subword
-
 	for i := 0; i < len(term); {
 		char := term[i]
 		wordAtIndex := term[i:]
@@ -150,12 +154,16 @@ func (t *Trie) Find(token string, tolerance int, exact bool) map[int64]float64 {
 		currNode = currChild
 		currNodeWord = append(currNodeWord, currChild.Subword...)
 	}
-
 	return currNode.findData(currNodeWord, term, tolerance, exact)
 }
 
-// SaveTrie saves the entire trie to a file using MessagePack
-func (t *Trie) SaveTrie(filePath string) error {
+func (t *Trie) FileName() string {
+	return t.ID + ".trie"
+}
+
+// Save saves the entire trie to a file using MessagePack
+func (t *Trie) Save() error {
+	filePath := t.FileName()
 	file, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -166,16 +174,26 @@ func (t *Trie) SaveTrie(filePath string) error {
 	return encoder.Encode(t.Root)
 }
 
-// LoadTrie loads a trie from a file using MessagePack
-func (t *Trie) LoadTrie(filePath string) error {
+// Load saves the entire trie to a file using MessagePack
+func (t *Trie) Load() (*Trie, error) {
+	filePath := t.FileName()
+	return NewFromFile(filePath)
+}
+
+func NewFromFile(filePath string) (*Trie, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer file.Close()
+	return NewFromReader(file)
+}
 
-	decoder := msgpack.NewDecoder(file)
-	root := newNode(nil)
-	t.Root = root
-	return decoder.Decode(root)
+func NewFromReader(reader io.Reader) (*Trie, error) {
+	decoder := msgpack.NewDecoder(reader)
+	t := New(xid.New().String())
+	err := decoder.Decode(t.Root)
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
 }

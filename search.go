@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/oarkflow/search/janitor"
 	"github.com/oarkflow/search/storage/flydb"
 	"github.com/oarkflow/search/storage/memdb"
 	"github.com/oarkflow/search/storage/mmap"
@@ -143,6 +144,8 @@ func defaultIDGenerator(doc any) int64 {
 type Engine[Schema SchemaProps] struct {
 	mutex           sync.RWMutex
 	documentStorage storage.Store[int64, Schema]
+	documentJanitor janitor.Janitor[int64, Schema]
+	indexJanitor    janitor.Janitor[int64, Schema]
 	indexes         maps.IMap[string, *Index]
 	indexKeys       []string
 	defaultLanguage tokenizer.Language
@@ -165,7 +168,7 @@ func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], erro
 	switch c.Storage {
 	case "flydb":
 		return flydb.New[int64, Schema](c.Path, c.SampleSize)
-	case "memdb":
+	case "mmap":
 		cfg := mmap.Config{
 			Path:               c.Path,
 			SampleSize:         c.SampleSize,
@@ -240,6 +243,14 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 
 func (db *Engine[Schema]) SetStorage(store storage.Store[int64, Schema]) {
 	db.documentStorage = store
+}
+
+func (db *Engine[Schema]) SetDocumentJanitor(store janitor.Janitor[int64, Schema]) {
+	db.documentJanitor = store
+}
+
+func (db *Engine[Schema]) SetIndexJanitor(store janitor.Janitor[int64, Schema]) {
+	db.indexJanitor = store
 }
 
 func (db *Engine[Schema]) Metadata() map[string]any {
@@ -603,7 +614,7 @@ func (db *Engine[Schema]) sampleWithFilters(params storage.SampleParams) (Result
 }
 
 func (db *Engine[Schema]) addIndex(key string) {
-	db.indexes.Set(key, NewIndex())
+	db.indexes.Set(key, NewIndex(key))
 	db.indexKeys = lib.Unique(append(db.indexKeys, key))
 }
 

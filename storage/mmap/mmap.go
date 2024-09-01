@@ -23,6 +23,7 @@ type MMap[K storage.Hashable, V any] struct {
 	lastAccessed  map[K]time.Time
 	mu            sync.Mutex
 	cleanupPeriod time.Duration
+	onEviction    func(K, V)
 }
 
 func (m *MMap[K, V]) janitor(evictionDuration time.Duration) {
@@ -158,6 +159,14 @@ func (m *MMap[K, V]) Get(key K) (V, bool) {
 	return zeroValue, false
 }
 
+func (m *MMap[K, V]) SetEvictionHandler(onEviction func(K, V)) {
+	m.onEviction = onEviction
+}
+
+func (m *MMap[K, V]) EvictionHandler() func(K, V) {
+	return m.onEviction
+}
+
 func (m *MMap[K, V]) Set(key K, value V) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -178,10 +187,8 @@ func (m *MMap[K, V]) Set(key K, value V) error {
 func (m *MMap[K, V]) Del(key K) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	m.inMemory.Del(key)
 	delete(m.lastAccessed, key)
-
 	return m.db.Del(fmt.Sprintf("%v", key))
 }
 

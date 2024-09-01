@@ -15,6 +15,7 @@ type MemDB[K storage.Hashable, V any] struct {
 	client     maps.IMap[K, V]
 	sampleSize int
 	comparator storage.Comparator[K]
+	onEviction func(K, V)
 }
 
 func New[K storage.Hashable, V any](sampleSize int, comparator storage.Comparator[K]) (*MemDB[K, V], error) {
@@ -41,6 +42,15 @@ func (m *MemDB[K, V]) Del(key K) error {
 
 func (m *MemDB[K, V]) Len() uint32 {
 	return uint32(m.client.Size())
+}
+
+func (m *MemDB[K, V]) SetEvictionHandler(onEviction func(K, V)) {
+
+	m.onEviction = onEviction
+}
+
+func (m *MemDB[K, V]) EvictionHandler() func(K, V) {
+	return m.onEviction
 }
 
 func (m *MemDB[K, V]) Sample(params storage.SampleParams) (map[string]V, error) {

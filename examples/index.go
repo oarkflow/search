@@ -2,12 +2,15 @@ package main
 
 import (
 	"fmt"
+
+	"github.com/oarkflow/xid"
+
 	"github.com/oarkflow/search/radix"
 )
 
 func main() {
 	// Create a new Trie
-	trie := radix.New()
+	trie := radix.New(xid.New().String())
 
 	// Insert some values
 	trie.Insert(1, "apple", 3.14)
@@ -16,13 +19,11 @@ func main() {
 	trie.Insert(4, "band", 1.41)
 
 	// Save trie to disk
-	err := trie.SaveTrie("radix_trie.msgpack")
+	err := trie.Save()
 	if err != nil {
 		fmt.Println("Error saving trie:", err)
 	}
-	// Load trie from disk
-	loadedTrie := radix.New()
-	err = loadedTrie.LoadTrie("radix_trie.msgpack")
+	loadedTrie, err := trie.Load()
 	if err != nil {
 		fmt.Println("Error loading trie:", err)
 	}
@@ -32,5 +33,5 @@ func main() {
 	fmt.Println(loadedTrie.Find("app", 0, true))    // Output: map[2:2.71]
 	fmt.Println(loadedTrie.Find("banana", 0, true)) // Output: map[3:1.61]
 	fmt.Println(loadedTrie.Find("band", 0, true))   // Output: map[4:1.41]
-	// os.Remove("radix_trie.msgpack")
+	// os.Del("radix_trie.msgpack")
 }

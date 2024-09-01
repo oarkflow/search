@@ -1,7 +1,10 @@
 package search
 
 import (
+	"fmt"
 	"sync"
+
+	"github.com/oarkflow/xid"
 
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/radix"
@@ -24,9 +27,10 @@ type Index struct {
 	mu               sync.RWMutex // Use a mutex for thread safety
 }
 
-func NewIndex() *Index {
+func NewIndex(key string) *Index {
+	key = fmt.Sprintf("%s:%s", key, xid.New().String())
 	return &Index{
-		data:             radix.New(),
+		data:             radix.New(key),
 		fieldLengths:     make(map[int64]int),
 		tokenOccurrences: make(map[string]int),
 	}

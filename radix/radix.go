@@ -1,18 +1,26 @@
 package radix
 
 import (
-	"github.com/oarkflow/msgpack"
-	"github.com/oarkflow/search/lib"
+	"io"
 	"os"
+
+	"github.com/oarkflow/msgpack"
+	"github.com/oarkflow/xid"
+
+	"github.com/oarkflow/search/lib"
 )
 
+var extension = ".trie"
+
 type Trie struct {
-	Root   *node
+	ID     string
+	Prefix string
+	Root   *Node
 	Length int
 }
 
-func New() *Trie {
-	return &Trie{Root: newNode(nil)}
+func New(prefix, id string) *Trie {
+	return &Trie{Root: newNode(nil), Prefix: prefix, ID: id}
 }
 
 func (t *Trie) Len() int {
@@ -154,8 +162,13 @@ func (t *Trie) Find(token string, tolerance int, exact bool) map[int64]float64 {
 	return currNode.findData(currNodeWord, term, tolerance, exact)
 }
 
-// SaveTrie saves the entire trie to a file using MessagePack
-func (t *Trie) SaveTrie(filePath string) error {
+func (t *Trie) FileName() string {
+	return t.Prefix + "_" + t.ID + extension
+}
+
+// Save saves the entire trie to a file using MessagePack
+func (t *Trie) Save() error {
+	filePath := t.FileName()
 	file, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -166,16 +179,27 @@ func (t *Trie) SaveTrie(filePath string) error {
 	return encoder.Encode(t.Root)
 }
 
-// LoadTrie loads a trie from a file using MessagePack
-func (t *Trie) LoadTrie(filePath string) error {
+// Load saves the entire trie to a file using MessagePack
+func (t *Trie) Load() (*Trie, error) {
+	filePath := t.FileName()
+	return NewFromFile(t.Prefix, filePath)
+}
+
+func NewFromFile(prefix string, filePath string) (*Trie, error) {
+	filePath = prefix + "_" + filePath + extension
 	file, err := os.Open(filePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer file.Close()
+	return NewFromReader(file, prefix)
+}
 
-	decoder := msgpack.NewDecoder(file)
-	root := newNode(nil)
-	t.Root = root
-	return decoder.Decode(root)
+func NewFromReader(reader io.Reader, prefix string) (*Trie, error) {
+	decoder := msgpack.NewDecoder(reader)
+	t := New(prefix, xid.New().String())
+	err := decoder.Decode(t.Root)
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
 }

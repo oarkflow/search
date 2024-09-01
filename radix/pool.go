@@ -5,13 +5,13 @@ import (
 )
 
 var (
-	nodePool lib.Pool[*node]
+	nodePool lib.Pool[*Node]
 )
 
 func init() {
-	nodePool = lib.NewPool[*node](func() *node {
-		return &node{
-			Children: make(map[rune]*node),
+	nodePool = lib.NewPool[*Node](func() *Node {
+		return &Node{
+			Children: make(map[rune]*Node),
 			Infos:    make(map[int64]float64),
 		}
 	})

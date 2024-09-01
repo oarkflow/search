@@ -130,6 +130,7 @@ type Config struct {
 	Storage            string          `json:"storage"`
 	Path               string          `json:"path"`
 	Compress           bool            `json:"compress"`
+	OffloadIndex       bool            `json:"offload_index"`
 	ResetPath          bool            `json:"reset_path"`
 	MaxRecordsInMemory int             `json:"max_records_in_memory"`
 	SampleSize         int             `json:"sample_size"`
@@ -141,7 +142,7 @@ func defaultIDGenerator(doc any) int64 {
 }
 
 type Engine[Schema SchemaProps] struct {
-	mutex           sync.RWMutex
+	m               sync.RWMutex
 	documentStorage storage.Store[int64, Schema]
 	indexes         maps.IMap[string, *Index]
 	indexKeys       []string
@@ -152,6 +153,7 @@ type Engine[Schema SchemaProps] struct {
 	key             string
 	sliceField      string
 	path            string
+	lastAccessedTS  time.Time
 	cfg             *Config
 }
 
@@ -165,7 +167,7 @@ func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], erro
 	switch c.Storage {
 	case "flydb":
 		return flydb.New[int64, Schema](c.Path, c.SampleSize)
-	case "memdb":
+	case "mmap":
 		cfg := mmap.Config{
 			Path:               c.Path,
 			SampleSize:         c.SampleSize,
@@ -235,11 +237,47 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 	if len(db.indexKeys) == 0 {
 		db.addIndexes(c.IndexKeys)
 	}
+	if c.OffloadIndex {
+		go db.offloadIndex()
+	}
 	return db, nil
+}
+
+func (db *Engine[Schema]) offloadIndex() {
+	ticker := time.NewTicker(db.cfg.CleanupPeriod)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			db.m.Lock()
+			log.Info().Msg("Checking for index cleanup...")
+			if now.Sub(db.lastAccessedTS) > db.cfg.EvictionDuration {
+				db.indexes.ForEach(func(key string, index *Index) bool {
+					if index != nil {
+						log.Info().Str("engine_key", db.key).Str("index_key", key).Msg("Performing index cleanup...")
+						err := index.Save()
+						if err == nil {
+							db.indexes.Set(key, nil)
+						}
+					}
+					return true
+				})
+			}
+			db.m.Unlock()
+		}
+	}
 }
 
 func (db *Engine[Schema]) SetStorage(store storage.Store[int64, Schema]) {
 	db.documentStorage = store
+}
+
+func (db *Engine[Schema]) updateLastAccessedTS() {
+	db.m.Lock()
+	defer db.m.Unlock()
+	db.lastAccessedTS = time.Now()
 }
 
 func (db *Engine[Schema]) Metadata() map[string]any {
@@ -509,6 +547,7 @@ func removeFilter(filters []*filters.Filter, filterToRemove *filters.Filter) []*
 
 // Search - uses params to search
 func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
+	db.updateLastAccessedTS()
 	if db.cache == nil {
 		db.cache = maps.NewMap[int64, map[int64]float64]()
 	}
@@ -603,7 +642,7 @@ func (db *Engine[Schema]) sampleWithFilters(params storage.SampleParams) (Result
 }
 
 func (db *Engine[Schema]) addIndex(key string) {
-	db.indexes.Set(key, NewIndex())
+	db.indexes.Set(key, NewIndex(db.key, key))
 	db.indexKeys = lib.Unique(append(db.indexKeys, key))
 }
 
@@ -630,10 +669,15 @@ func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, err
 		Language:        language,
 		AllowDuplicates: false,
 	}, *db.tokenizerConfig, tokens)
+	var err error
 	for _, prop := range properties {
 		index, ok := db.indexes.Get(prop)
-		if !ok {
-			continue
+		if !ok || index == nil {
+			index, err = NewFromFile(db.key, prop)
+			if err != nil || index == nil {
+				continue
+			}
+			db.indexes.Set(prop, index)
 		}
 		idScores := index.Find(&FindParams{
 			Tokens:    tokens,
@@ -677,8 +721,8 @@ func (db *Engine[Schema]) getDocuments(scores map[int64]float64) Hits[Schema] {
 }
 
 func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, language tokenizer.Language) {
-	db.mutex.Lock()
-	defer db.mutex.Unlock()
+	db.m.Lock()
+	defer db.m.Unlock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
 		text := lib.ToString(document[propName])
 		tokens := tokensPool.Get()
@@ -696,8 +740,8 @@ func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, langu
 }
 
 func (db *Engine[Schema]) deindexDocument(id int64, document map[string]any, language tokenizer.Language) {
-	db.mutex.Lock()
-	defer db.mutex.Unlock()
+	db.m.Lock()
+	defer db.m.Unlock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
 		tokens := tokensPool.Get()
 		clear(tokens)

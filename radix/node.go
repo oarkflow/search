@@ -6,13 +6,13 @@ import (
 	"github.com/oarkflow/search/lib"
 )
 
-type node struct {
+type Node struct {
 	Subword  []rune            `json:"subword"`
-	Children map[rune]*node    `json:"children"`
+	Children map[rune]*Node    `json:"children"`
 	Infos    map[int64]float64 `json:"infos"`
 }
 
-func newNode(subword []rune) *node {
+func newNode(subword []rune) *Node {
 	n := nodePool.Get()
 	n.Subword = subword
 	// Clear the maps (or reinitialize if needed)
@@ -25,36 +25,36 @@ func newNode(subword []rune) *node {
 	return n
 }
 
-func (n *node) putNode() {
+func (n *Node) putNode() {
 	nodePool.Put(n)
 }
 
-func (n *node) addData(id int64, frequency float64) {
+func (n *Node) addData(id int64, frequency float64) {
 	n.Infos[id] = frequency
 }
 
-func (n *node) addChild(child *node) {
+func (n *Node) addChild(child *Node) {
 	if len(child.Subword) > 0 {
 		n.Children[child.Subword[0]] = child
 	}
 }
 
-func (n *node) removeChild(child *node) {
+func (n *Node) removeChild(child *Node) {
 	if len(child.Subword) > 0 {
 		delete(n.Children, child.Subword[0])
 	}
 }
 
-func (n *node) removeData(id int64) {
+func (n *Node) removeData(id int64) {
 	delete(n.Infos, id)
 }
 
-func (n *node) findData(word []rune, term []rune, tolerance int, exact bool) map[int64]float64 {
+func (n *Node) findData(word []rune, term []rune, tolerance int, exact bool) map[int64]float64 {
 	results := make(map[int64]float64)
 	stack := [][2]interface{}{{n, word}}
 
 	for len(stack) > 0 {
-		currNode, currWord := stack[len(stack)-1][0].(*node), stack[len(stack)-1][1].([]rune)
+		currNode, currWord := stack[len(stack)-1][0].(*Node), stack[len(stack)-1][1].([]rune)
 		stack = stack[:len(stack)-1]
 
 		if _, eq := lib.CommonPrefix(currWord, term); !eq && exact {
@@ -77,7 +77,7 @@ func (n *node) findData(word []rune, term []rune, tolerance int, exact bool) map
 	return results
 }
 
-func mergeNodes(a *node, b *node) {
+func mergeNodes(a *Node, b *Node) {
 	a.Subword = append(a.Subword, b.Subword...)
 	a.Infos = b.Infos
 	a.Children = b.Children

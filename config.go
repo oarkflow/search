@@ -121,8 +121,8 @@ type Config struct {
 }
 
 // MergeConfigs merges multiple Config structs into one.
-func MergeConfigs(configs ...Config) Config {
-	mergedConfig := Config{
+func MergeConfigs(configs ...*Config) *Config {
+	mergedConfig := &Config{
 		Rules: make(map[string]bool),
 	}
 

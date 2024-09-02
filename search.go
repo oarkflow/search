@@ -12,10 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/oarkflow/search/storage/flydb"
-	"github.com/oarkflow/search/storage/memdb"
-	"github.com/oarkflow/search/storage/mmap"
-
 	"github.com/oarkflow/gopool"
 	"github.com/oarkflow/log"
 	"github.com/oarkflow/xid"
@@ -28,118 +24,6 @@ import (
 	"github.com/oarkflow/search/storage"
 	"github.com/oarkflow/search/tokenizer"
 )
-
-const (
-	AND Mode = "AND"
-	OR  Mode = "OR"
-)
-
-const WILDCARD = "*"
-
-type Mode string
-
-type SchemaProps any
-
-type Record[Schema SchemaProps] struct {
-	Id   int64  `json:"id"`
-	Data Schema `json:"data"`
-}
-
-type InsertParams[Schema SchemaProps] struct {
-	Document Schema
-	Language tokenizer.Language
-}
-
-type InsertBatchParams[Schema SchemaProps] struct {
-	Documents []Schema
-	BatchSize int
-	Language  tokenizer.Language
-}
-
-type UpdateParams[Schema SchemaProps] struct {
-	Id       int64
-	Document Schema
-	Language tokenizer.Language
-}
-
-type DeleteParams[Schema SchemaProps] struct {
-	Id       int64
-	Language tokenizer.Language
-}
-
-type Params struct {
-	Filters    []*filters.Filter  `json:"filters"`
-	Query      string             `json:"query"`
-	Condition  string             `json:"condition"`
-	Properties []string           `json:"properties"`
-	BoolMode   Mode               `json:"boolMode"`
-	Exact      bool               `json:"exact"`
-	Tolerance  int                `json:"tolerance"`
-	Relevance  BM25Params         `json:"relevance"`
-	Paginate   bool               `json:"paginate"`
-	Offset     int                `json:"offset"`
-	Limit      int                `json:"limit"`
-	Sort       string             `json:"sort"`
-	Language   tokenizer.Language `json:"lang"`
-}
-
-func (p *Params) ToInt64() int64 {
-	return lib.CRC32Checksum(p)
-
-}
-
-type BM25Params struct {
-	K float64 `json:"k"`
-	B float64 `json:"b"`
-	D float64 `json:"d"`
-}
-
-type Result[Schema SchemaProps] struct {
-	Hits          Hits[Schema] `json:"hits"`
-	Count         int          `json:"count"`
-	FilteredTotal int          `json:"filtered_total"`
-	Total         int          `json:"total"`
-	Message       string       `json:"message"`
-}
-
-type Hit[Schema SchemaProps] struct {
-	Id    int64   `json:"id"`
-	Data  Schema  `json:"data"`
-	Score float64 `json:"score"`
-}
-
-type Hits[Schema SchemaProps] []Hit[Schema]
-
-func (r Hits[Schema]) Len() int { return len(r) }
-
-func (r Hits[Schema]) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
-
-func (r Hits[Schema]) Less(i, j int) bool { return r[i].Score > r[j].Score }
-
-type Config struct {
-	Key                string             `json:"key"`
-	DefaultLanguage    tokenizer.Language `json:"default_language"`
-	TokenizerConfig    *tokenizer.Config
-	CleanupPeriod      time.Duration   `json:"cleanup_period"`
-	EvictionDuration   time.Duration   `json:"eviction_duration"`
-	IndexKeys          []string        `json:"index_keys"`
-	FieldsToStore      []string        `json:"fields_to_store"`
-	FieldsToExclude    []string        `json:"fields_to_exclude"`
-	Rules              map[string]bool `json:"rules"`
-	SliceField         string          `json:"slice_field"`
-	Storage            string          `json:"storage"`
-	Path               string          `json:"path"`
-	Compress           bool            `json:"compress"`
-	OffloadIndex       bool            `json:"offload_index"`
-	ResetPath          bool            `json:"reset_path"`
-	MaxRecordsInMemory int             `json:"max_records_in_memory"`
-	SampleSize         int             `json:"sample_size"`
-	IDGenerator        func(doc any) int64
-}
-
-func defaultIDGenerator(doc any) int64 {
-	return xid.New().Int64()
-}
 
 type Engine[Schema SchemaProps] struct {
 	m               sync.RWMutex
@@ -155,30 +39,6 @@ type Engine[Schema SchemaProps] struct {
 	path            string
 	lastAccessedTS  time.Time
 	cfg             *Config
-}
-
-func getStore[Schema SchemaProps](c *Config) (storage.Store[int64, Schema], error) {
-	if c.SampleSize == 0 {
-		c.SampleSize = 20
-	}
-	if c.MaxRecordsInMemory == 0 {
-		c.MaxRecordsInMemory = 100
-	}
-	switch c.Storage {
-	case "flydb":
-		return flydb.New[int64, Schema](c.Path, c.SampleSize)
-	case "mmap":
-		cfg := mmap.Config{
-			Path:               c.Path,
-			SampleSize:         c.SampleSize,
-			CleanupPeriod:      c.CleanupPeriod,
-			EvictionDuration:   c.EvictionDuration,
-			MaxRecordsInMemory: c.MaxRecordsInMemory,
-		}
-		return mmap.New[int64, Schema](cfg, storage.Int64Comparator)
-	default:
-		return memdb.New[int64, Schema](c.SampleSize, storage.Int64Comparator)
-	}
 }
 
 func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
@@ -318,13 +178,6 @@ func (db *Engine[Schema]) Storage() storage.Store[int64, Schema] {
 	return db.documentStorage
 }
 
-func (db *Engine[Schema]) buildIndexes() {
-	var s Schema
-	for key := range db.flattenSchema(s) {
-		db.addIndex(key)
-	}
-}
-
 func (db *Engine[Schema]) Insert(doc Schema, lang ...tokenizer.Language) (Record[Schema], error) {
 	if len(db.cfg.FieldsToStore) > 0 {
 		switch doc := any(doc).(type) {
@@ -441,7 +294,7 @@ func (db *Engine[Schema]) Update(params *UpdateParams[Schema]) (Record[Schema], 
 	}
 	db.indexDocument(params.Id, document, language)
 	document = db.flattenSchema(oldDocument)
-	db.deindexDocument(params.Id, document, language)
+	db.deIndexDocument(params.Id, document, language)
 	err := db.SetDocument(params.Id, params.Document)
 	if err != nil {
 		return Record[Schema]{}, err
@@ -463,7 +316,7 @@ func (db *Engine[Schema]) Delete(params *DeleteParams[Schema]) error {
 		return fmt.Errorf("document not found")
 	}
 	doc := db.flattenSchema(document)
-	db.deindexDocument(params.Id, doc, language)
+	db.deIndexDocument(params.Id, doc, language)
 	return db.DelDocument(params.Id)
 }
 
@@ -496,59 +349,6 @@ func (db *Engine[Schema]) Sample(params storage.SampleParams) (Result[Schema], e
 		results = append(results, Hit[Schema]{Id: parseInt, Data: doc, Score: 0})
 	}
 	return db.prepareResult(results, &Params{Paginate: false})
-}
-
-func ProcessQueryAndFilters(params *Params, seq *filters.Rule) {
-	var extraFilters []*filters.Filter
-	if params.Query != "" {
-		for _, filter := range params.Filters {
-			if filter.Field != "q" {
-				extraFilters = append(extraFilters, filter)
-			}
-		}
-		params.Filters = extraFilters
-		return
-	}
-	foundQ := false
-	for _, filter := range params.Filters {
-		if filter.Field == "q" {
-			params.Query = fmt.Sprintf("%v", filter.Value)
-			params.Properties = append(params.Properties, filter.Field)
-			foundQ = true
-		} else {
-			extraFilters = append(extraFilters, filter)
-		}
-	}
-
-	if !foundQ {
-		for _, filter := range extraFilters {
-			if filter.Operator == filters.Equal {
-				params.Query = fmt.Sprintf("%v", filter.Value)
-				params.Properties = append(params.Properties, filter.Field)
-				extraFilters = removeFilter(extraFilters, filter)
-				break
-			}
-		}
-	}
-	if params.Query == "" && seq != nil {
-		firstFilter, err := filters.FirstTermFilter(seq)
-		if err == nil {
-			params.Query = fmt.Sprintf("%v", firstFilter.Value)
-			params.Properties = append(params.Properties, firstFilter.Field)
-		}
-	}
-
-	// Update the filters in params
-	params.Filters = extraFilters
-}
-
-func removeFilter(filters []*filters.Filter, filterToRemove *filters.Filter) []*filters.Filter {
-	for i, filter := range filters {
-		if filter == filterToRemove {
-			return append(filters[:i], filters[i+1:]...)
-		}
-	}
-	return filters
 }
 
 // Search - uses params to search
@@ -630,12 +430,6 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	return db.prepareResult(results, params)
 }
 
-func (db *Engine[Schema]) addIndexes(keys []string) {
-	for _, key := range keys {
-		db.addIndex(key)
-	}
-}
-
 func (db *Engine[Schema]) sampleWithFilters(params storage.SampleParams) (Result[Schema], error) {
 	rs, err := db.Sample(params)
 	if err != nil {
@@ -645,11 +439,6 @@ func (db *Engine[Schema]) sampleWithFilters(params storage.SampleParams) (Result
 		rs.Message = "[WARN] - Query or Filters not applied"
 	}
 	return rs, nil
-}
-
-func (db *Engine[Schema]) addIndex(key string) {
-	db.indexes.Set(key, NewIndex(db.key, key))
-	db.indexKeys = lib.Unique(append(db.indexKeys, key))
 }
 
 func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, error) {
@@ -726,43 +515,6 @@ func (db *Engine[Schema]) getDocuments(scores map[int64]float64) Hits[Schema] {
 	return results
 }
 
-func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, language tokenizer.Language) {
-	db.m.Lock()
-	defer db.m.Unlock()
-	db.indexes.ForEach(func(propName string, index *Index) bool {
-		text := lib.ToString(document[propName])
-		tokens := tokensPool.Get()
-		clear(tokens)
-		tokenizer.Tokenize(tokenizer.TokenizeParams{
-			Text:            text,
-			Language:        language,
-			AllowDuplicates: true,
-		}, *db.tokenizerConfig, tokens)
-		index.Insert(id, tokens, db.DocumentLen())
-		clear(tokens)
-		tokensPool.Put(tokens)
-		return true
-	})
-}
-
-func (db *Engine[Schema]) deindexDocument(id int64, document map[string]any, language tokenizer.Language) {
-	db.m.Lock()
-	defer db.m.Unlock()
-	db.indexes.ForEach(func(propName string, index *Index) bool {
-		tokens := tokensPool.Get()
-		clear(tokens)
-		tokenizer.Tokenize(tokenizer.TokenizeParams{
-			Text:            lib.ToString(document[propName]),
-			Language:        language,
-			AllowDuplicates: false,
-		}, *db.tokenizerConfig, tokens)
-		index.Delete(id, tokens, db.DocumentLen())
-		clear(tokens)
-		tokensPool.Put(tokens)
-		return true
-	})
-}
-
 func (db *Engine[Schema]) getFieldsFromMap(obj any) map[string]any {
 	m, ok := obj.(map[string]any)
 	if !ok {
@@ -837,125 +589,6 @@ func (db *Engine[Schema]) flattenSchema(obj any, prefix ...string) map[string]an
 	default:
 		return map[string]any{
 			db.sliceField: fmt.Sprint(obj),
-		}
-	}
-}
-
-// getFieldsFromMap retrieves fields from a map in dot notation.
-func getFieldsFromMap(obj map[string]any, prefix ...string) []string {
-	var fields []string
-	for field, val := range obj {
-		fullField := field
-		if len(prefix) > 0 {
-			fullField = fmt.Sprintf("%s.%s", prefix[0], field)
-		}
-
-		switch val := val.(type) {
-		case map[string]any:
-			fields = append(fields, getFieldsFromMap(val, fullField)...)
-		case []any:
-			fields = append(fields, getFieldsFromArray(val, fullField)...)
-		default:
-			fields = append(fields, fullField)
-		}
-	}
-	return fields
-}
-
-func getFieldsFromArray(array []any, prefix ...string) []string {
-	var fields []string
-	// Check if the array contains maps
-	if len(array) > 0 {
-		if _, ok := array[0].(map[string]any); ok {
-			fullFieldPrefix := fmt.Sprintf("%s.#", prefix[0])
-			for _, val := range array {
-				switch val := val.(type) {
-				case map[string]any:
-					fields = append(fields, getFieldsFromMap(val, fullFieldPrefix)...)
-				case []any:
-					fields = append(fields, getFieldsFromArray(val, fullFieldPrefix)...)
-				default:
-					fields = append(fields, fullFieldPrefix)
-				}
-			}
-			return fields
-		}
-	}
-	// If the array does not contain maps, treat it as a simple field
-	if len(prefix) > 0 {
-		fields = append(fields, prefix[0])
-	}
-	return fields
-}
-
-func getFieldsFromStruct(obj any, prefix ...string) []string {
-	var fields []string
-	t := reflect.TypeOf(obj)
-	v := reflect.ValueOf(obj)
-	visibleFields := reflect.VisibleFields(t)
-	hasIndexField := false
-	for i, field := range visibleFields {
-		if propName, ok := field.Tag.Lookup("index"); ok {
-			hasIndexField = true
-			if len(prefix) == 1 {
-				propName = fmt.Sprintf("%s.%s", prefix[0], propName)
-			}
-
-			if field.Type.Kind() == reflect.Struct {
-				for _, key := range DocFields(v.Field(i).Interface(), propName) {
-					fields = append(fields, key)
-				}
-			} else {
-				fields = append(fields, propName)
-			}
-		}
-	}
-
-	if !hasIndexField {
-		for i, field := range visibleFields {
-			propName := field.Name
-			if len(prefix) == 1 {
-				propName = fmt.Sprintf("%s.%s", prefix[0], propName)
-			}
-
-			if field.Type.Kind() == reflect.Struct {
-				for _, key := range DocFields(v.Field(i).Interface(), propName) {
-					fields = append(fields, key)
-				}
-			} else {
-				fields = append(fields, propName)
-			}
-		}
-	}
-	return fields
-}
-
-func DocFields(obj any, prefix ...string) []string {
-	if obj == nil {
-		return nil
-	}
-
-	switch obj := obj.(type) {
-	case map[string]any:
-		return getFieldsFromMap(obj, prefix...)
-	case map[string]string:
-		data := make(map[string]any)
-		for k, v := range obj {
-			data[k] = v
-		}
-		return getFieldsFromMap(data, prefix...)
-	default:
-		switch obj := obj.(type) {
-		case map[string]any:
-			return getFieldsFromMap(obj, prefix...)
-		case map[string]string:
-			data := make(map[string]any)
-			for k, v := range obj {
-				data[k] = v
-			}
-			return getFieldsFromMap(data, prefix...)
-		default:
-			return getFieldsFromStruct(obj, prefix...)
 		}
 	}
 }

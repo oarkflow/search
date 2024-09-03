@@ -113,12 +113,6 @@ func (db *Engine[Schema]) offloadIndex() {
 		case <-ticker.C:
 			now := time.Now()
 			db.m.Lock()
-			log.Info().
-				Time("last_accessed", db.lastAccessedTS).
-				Dur("eviction_duration", db.cfg.EvictionDuration).
-				Dur("duration", now.Sub(db.lastAccessedTS)).
-				Bool("valid_cleanup", now.Sub(db.lastAccessedTS) > db.cfg.EvictionDuration).
-				Msg("Checking for index cleanup...")
 			if now.Sub(db.lastAccessedTS) > db.cfg.EvictionDuration {
 				db.indexes.ForEach(func(key string, index *Index) bool {
 					if index != nil {

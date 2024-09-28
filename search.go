@@ -367,7 +367,7 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	if params.Condition != "" {
 		filter, err = filters.ParseSQL(params.Condition)
 		if err != nil {
-			log.Error().Err(err).Msg("Unable to parse condition")
+			log.Error().Err(err).Str("condition", params.Condition).Msg("Unable to parse condition")
 		}
 	}
 	ProcessQueryAndFilters(params, filter)

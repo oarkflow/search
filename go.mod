@@ -4,7 +4,7 @@ go 1.22.3
 
 require (
 	github.com/oarkflow/date v0.0.4
-	github.com/oarkflow/filters v0.0.26
+	github.com/oarkflow/filters v0.0.27
 	github.com/oarkflow/flydb v0.0.1
 	github.com/oarkflow/frame v0.0.68
 	github.com/oarkflow/gopool v0.0.2

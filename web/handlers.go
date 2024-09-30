@@ -366,16 +366,16 @@ func (f *FulltextController) IndexFromDatabase(_ context.Context, ctx *frame.Con
 	}, "Indexing started in background")
 }
 
-func SearchRoutes(route route.IRouter) route.IRouter {
+func SearchRoutes(route route.IRouter, assetPath ...string) route.IRouter {
 	root := "./dist"
-	// Use runtime.Caller to get information about the current file
+	if len(assetPath) > 0 {
+		root = assetPath[0]
+	}
 	_, file, _, ok := runtime.Caller(0)
 	if ok {
 		dir := filepath.Dir(file)
 		root = filepath.Join(dir, root)
 	}
-
-	// Extract the directory from the file path
 	route.StaticFS("/", &frame.FS{
 		Root:       root,
 		IndexNames: []string{"index.html"},

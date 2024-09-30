@@ -78,10 +78,8 @@ github.com/oarkflow/errors v0.0.6 h1:qTBzVblrX6bFbqYLfatsrZHMBPchOZiIE3pfVzh1+k8
 github.com/oarkflow/errors v0.0.6/go.mod h1:UETn0Q55PJ+YUbpR4QImIoBavd6QvJtyW/oeTT7ghZM=
 github.com/oarkflow/expr v0.0.11 h1:H6h+dIUlU+xDlijMXKQCh7TdE6MGVoFPpZU7q/dziRI=
 github.com/oarkflow/expr v0.0.11/go.mod h1:WgMZqP44h7SBwKyuGZwC15vj46lHtI0/QpKdEZpRVE4=
-github.com/oarkflow/filters v0.0.26 h1:UoMjYll6w01JGjbzlheI4jtw0ARFpBiwzzaTzpAdlWw=
-github.com/oarkflow/filters v0.0.26/go.mod h1:vIETJrTZXhQi9t6uyGiVI5Tw/GGjgjw2rN2CtJFfMCU=
-github.com/oarkflow/filters v0.0.27 h1:FkCpmsmSHx81CRVShrWoGLL2oRi1dNw27i3fVci0muo=
-github.com/oarkflow/filters v0.0.27/go.mod h1:vIETJrTZXhQi9t6uyGiVI5Tw/GGjgjw2rN2CtJFfMCU=
+github.com/oarkflow/filters v0.0.28 h1:hxqpuxbOesF6EemnOCyI4qkY4xu4/FN4EUwg3nMr+uk=
+github.com/oarkflow/filters v0.0.28/go.mod h1:vIETJrTZXhQi9t6uyGiVI5Tw/GGjgjw2rN2CtJFfMCU=
 github.com/oarkflow/flydb v0.0.1 h1:Y1aHcTrXcAjH6qqresjkpLQYwN2+vhJZUciPEmJaf/E=
 github.com/oarkflow/flydb v0.0.1/go.mod h1:45FtOqeKnmJ9dwsMqniuYNCd0oiok2iFGh/8OqFeAEQ=
 github.com/oarkflow/frame v0.0.68 h1:p4UkRmhdPQyQbh5KRrnRgzbW8lSOKRl2V+DZ+pRCWrI=

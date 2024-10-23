@@ -15,6 +15,8 @@ type Query struct {
 	Offset    int               `json:"o" query:"o"`
 	Size      int               `json:"s" query:"s"`
 	Exact     bool              `json:"e" query:"e"`
+	SortField string            `json:"sort_field" query:"sort_field"`
+	SortOrder string            `json:"sort_order" query:"sort_order"`
 }
 
 type Options struct {
@@ -24,6 +26,8 @@ type Options struct {
 	FieldsToExclude []string `json:"fields_to_exclude"`
 	Reset           bool     `json:"reset"`
 	Compress        bool     `json:"compress"`
+	SortField       string   `json:"sort_field" query:"sort_field"`
+	SortOrder       string   `json:"sort_order" query:"sort_order"`
 }
 
 type Database struct {

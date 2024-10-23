@@ -8,7 +8,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -347,6 +346,15 @@ func (db *Engine[Schema]) Sample(params storage.SampleParams) (Result[Schema], e
 
 // Search - uses params to search
 func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
+	if params.SortOrder == "" {
+		params.SortOrder = db.cfg.SortOrder
+	}
+	if params.SortOrder == "" {
+		params.SortOrder = "asc"
+	}
+	if params.SortField == "" {
+		params.SortField = db.cfg.SortField
+	}
 	db.updateLastAccessedTS()
 	if db.cache == nil {
 		db.cache = maps.NewMap[int64, map[int64]float64]()
@@ -372,29 +380,24 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	}
 	ProcessQueryAndFilters(params, filter)
 	if params.Query == "" && len(params.Filters) == 0 {
-		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Rule: filter, Filters: params.Filters, Sort: params.Sort})
+		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Rule: filter, Filters: params.Filters, SortOrder: params.SortOrder, SortField: params.SortField})
 	}
 	allIdScores, err := db.findWithParams(params)
 	if err != nil {
 		return Result[Schema]{}, err
 	}
 	if len(allIdScores) == 0 && params.Query == "" {
-		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Rule: filter, Filters: params.Filters, Sort: params.Sort})
+		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Rule: filter, Filters: params.Filters, SortOrder: params.SortOrder, SortField: params.SortField})
 	}
 	// Step 1: Extract and sort keys
 	keys := make([]int64, 0, len(allIdScores))
 	for key := range allIdScores {
 		keys = append(keys, key)
 	}
-	if params.Sort == "" || strings.ToLower(params.Sort) == "asc" {
-		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	} else if strings.ToLower(params.Sort) == "desc" {
-		sort.Slice(keys, func(i, j int) bool { return keys[i] > keys[j] })
-	}
-	results := make(Hits[Schema], 0)
+	result := make(Hits[Schema], 0)
 	cache := make(map[int64]float64)
 	defer func() {
-		results = nil
+		result = nil
 		cache = nil
 	}()
 	for _, id := range keys {
@@ -405,23 +408,23 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 		}
 		if len(params.Filters) == 0 && params.Condition == "" {
 			cache[id] = score
-			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
+			result = append(result, Hit[Schema]{Id: id, Data: doc, Score: score})
 			continue
 		}
 		if params.Condition != "" {
 			if db.CheckCondition(doc, filter) {
 				cache[id] = score
-				results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
+				result = append(result, Hit[Schema]{Id: id, Data: doc, Score: score})
 			}
 		} else if db.Check(doc, params.Filters) {
 			cache[id] = score
-			results = append(results, Hit[Schema]{Id: id, Data: doc, Score: score})
+			result = append(result, Hit[Schema]{Id: id, Data: doc, Score: score})
 		}
 	}
 	if cachedKey != 0 && len(cache) > 0 {
 		db.cache.Set(cachedKey, cache)
 	}
-	return db.prepareResult(results, params)
+	return db.prepareResult(result, params)
 }
 
 func (db *Engine[Schema]) sampleWithFilters(params storage.SampleParams) (Result[Schema], error) {
@@ -486,7 +489,8 @@ func (db *Engine[Schema]) findWithParams(params *Params) (map[int64]float64, err
 }
 
 func (db *Engine[Schema]) prepareResult(results Hits[Schema], params *Params) (Result[Schema], error) {
-	sort.Sort(results)
+	sortable := SortableHits[Schema]{Hits: results, SortField: params.SortField, SortOrder: params.SortOrder}
+	sort.Sort(sortable)
 	resultLen := len(results)
 	if !params.Paginate {
 		return Result[Schema]{Hits: results, Count: resultLen, FilteredTotal: resultLen, Total: db.DocumentLen()}, nil

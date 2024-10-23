@@ -71,11 +71,11 @@ func (m *MemDB[K, V]) Sample(params storage.SampleParams) (map[string]V, error) 
 		}
 		return true
 	})
-	if params.Sort == "" || strings.ToLower(params.Sort) == "asc" {
+	if params.SortOrder == "" || strings.ToLower(params.SortOrder) == "asc" {
 		sort.Slice(keys, func(i, j int) bool {
 			return m.comparator(keys[i], keys[j]) < 0
 		})
-	} else if strings.ToLower(params.Sort) == "desc" {
+	} else if strings.ToLower(params.SortOrder) == "desc" {
 		sort.Slice(keys, func(i, j int) bool {
 			return m.comparator(keys[i], keys[j]) > 0
 		})

@@ -10,10 +10,10 @@ import (
 )
 
 func main() {
-	bt := []byte(`{"query":"PROTOPORPHYRIN"}`)
+	bt := []byte(`{"query":"ab","sort_field": "display_name"}`)
 	var params search.Params
 	json.Unmarshal(bt, &params)
-	icds := lib.ReadFileAsMap("sample.json")
+	icds := lib.ReadFileAsMap("billing-providers.json")
 	db, _ := search.New[map[string]any](&search.Config{Storage: "memdb", Path: "fts"})
 	var startTime = time.Now()
 	before := lib.Stats()

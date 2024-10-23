@@ -122,6 +122,8 @@ func (f *FulltextController) NewEngine(_ context.Context, ctx *frame.Context) {
 	cfg.FieldsToExclude = req.FieldsToExclude
 	cfg.Compress = req.Compress
 	cfg.ResetPath = req.Reset
+	cfg.SortOrder = req.SortOrder
+	cfg.SortField = req.SortField
 	_, err = search.SetEngine[map[string]any](req.Key, cfg)
 	if err != nil {
 		Failed(ctx, consts.StatusBadRequest, err.Error(), nil)
@@ -155,7 +157,7 @@ func (f *FulltextController) IndexInBatch(_ context.Context, ctx *frame.Context)
 	Success(ctx, consts.StatusOK, records)
 }
 
-var builtInFields = []string{"q", "m", "l", "f", "t", "o", "s", "e", "condition"}
+var builtInFields = []string{"q", "m", "l", "f", "t", "o", "s", "e", "condition", "sort_field", "sort_order"}
 
 func (f *FulltextController) prepareQuery(ctx *frame.Context) (Query, error) {
 	var query Query
@@ -283,6 +285,8 @@ func (f *FulltextController) search(keyType string, query Query) ([]map[string]a
 		Properties: query.Fields,
 		Exact:      query.Exact,
 		Filters:    query.Filters,
+		SortField:  query.SortField,
+		SortOrder:  query.SortOrder,
 	}
 	if params.Limit == 0 {
 		params.Limit = 100

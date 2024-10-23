@@ -1,11 +1,14 @@
 package search
 
 import (
+	"reflect"
+	"time"
+
 	"github.com/oarkflow/filters"
+	"github.com/oarkflow/xid"
+
 	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/tokenizer"
-	"github.com/oarkflow/xid"
-	"time"
 )
 
 const (
@@ -58,7 +61,8 @@ type Params struct {
 	Paginate   bool               `json:"paginate"`
 	Offset     int                `json:"offset"`
 	Limit      int                `json:"limit"`
-	Sort       string             `json:"sort"`
+	SortOrder  string             `json:"sort_order"`
+	SortField  string             `json:"sort_field"`
 	Language   tokenizer.Language `json:"lang"`
 }
 
@@ -95,6 +99,70 @@ func (r Hits[Schema]) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
 
 func (r Hits[Schema]) Less(i, j int) bool { return r[i].Score > r[j].Score }
 
+// Wrapper around Hits with additional sorting context.
+type SortableHits[Schema any] struct {
+	Hits      Hits[Schema]
+	SortField string
+	SortOrder string
+}
+
+func (s SortableHits[Schema]) Len() int {
+	return len(s.Hits)
+}
+
+func (s SortableHits[Schema]) Swap(i, j int) {
+	s.Hits[i], s.Hits[j] = s.Hits[j], s.Hits[i]
+}
+
+func (s SortableHits[Schema]) Less(i, j int) bool {
+	dataI := s.Hits[i].Data
+	dataJ := s.Hits[j].Data
+	var fieldI, fieldJ reflect.Value
+	if reflect.TypeOf(dataI).Kind() == reflect.Struct {
+		fieldI = reflect.ValueOf(dataI).FieldByName(s.SortField)
+		fieldJ = reflect.ValueOf(dataJ).FieldByName(s.SortField)
+	}
+	if reflect.TypeOf(dataI).Kind() == reflect.Map {
+		mapI, okI := any(dataI).(map[string]any)
+		mapJ, okJ := any(dataJ).(map[string]any)
+		if okI && okJ {
+			valI, existsI := mapI[s.SortField]
+			valJ, existsJ := mapJ[s.SortField]
+			if existsI && existsJ {
+				fieldI = reflect.ValueOf(valI)
+				fieldJ = reflect.ValueOf(valJ)
+			} else {
+				return s.Hits[i].Score > s.Hits[j].Score
+			}
+		}
+	}
+	if fieldI.IsValid() && fieldJ.IsValid() {
+		switch fieldI.Kind() {
+		case reflect.Int, reflect.Int64, reflect.Int32:
+			if s.SortOrder == "asc" {
+				return fieldI.Int() < fieldJ.Int()
+			} else {
+				return fieldI.Int() > fieldJ.Int()
+			}
+		case reflect.Float64, reflect.Float32:
+			if s.SortOrder == "asc" {
+				return fieldI.Float() < fieldJ.Float()
+			} else {
+				return fieldI.Float() > fieldJ.Float()
+			}
+		case reflect.String:
+			if s.SortOrder == "asc" {
+				return fieldI.String() < fieldJ.String()
+			} else {
+				return fieldI.String() > fieldJ.String()
+			}
+		default:
+			return false
+		}
+	}
+	return s.Hits[i].Score > s.Hits[j].Score
+}
+
 func defaultIDGenerator(_ any) int64 {
 	return xid.New().Int64()
 }
@@ -117,6 +185,8 @@ type Config struct {
 	ResetPath          bool            `json:"reset_path"`
 	MaxRecordsInMemory int             `json:"max_records_in_memory"`
 	SampleSize         int             `json:"sample_size"`
+	SortField          string          `json:"sort_field"`
+	SortOrder          string          `json:"sort_order"`
 	IDGenerator        func(doc any) int64
 }
 

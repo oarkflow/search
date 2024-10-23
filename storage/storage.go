@@ -17,10 +17,11 @@ func Int64Comparator(a, b int64) int {
 }
 
 type SampleParams struct {
-	Size    int
-	Filters []*filters.Filter
-	Rule    *filters.Rule
-	Sort    string
+	Size      int
+	Filters   []*filters.Filter
+	Rule      *filters.Rule
+	SortOrder string
+	SortField string
 }
 
 // Store defines the interface for our key-value store

@@ -341,7 +341,7 @@ func (db *Engine[Schema]) Sample(params storage.SampleParams) (Result[Schema], e
 		parseInt, _ := strconv.ParseInt(k, 10, 64)
 		results = append(results, Hit[Schema]{Id: parseInt, Data: doc, Score: 0})
 	}
-	return db.prepareResult(results, &Params{Paginate: false})
+	return db.prepareResult(results, &Params{Paginate: false, Filters: params.Filters, SortOrder: params.SortOrder, SortField: params.SortField})
 }
 
 // Search - uses params to search

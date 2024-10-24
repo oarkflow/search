@@ -102,6 +102,8 @@ github.com/oarkflow/render v0.0.1 h1:Caw74Yu8OE/tjCjurhbUkS0Fi9zE/mzVvQa1Cw7m7R4
 github.com/oarkflow/render v0.0.1/go.mod h1:nnRhxhKn9NCPtTfbsaLuyCt86Iv9hMbNPDFQoPucQYI=
 github.com/oarkflow/squealx v0.0.24 h1:V2bVU1xXYzTQRs0jAEQ4NUMd4rbbOvnr0w9ZMf3yXwk=
 github.com/oarkflow/squealx v0.0.24/go.mod h1:8OJCbvNyHx6P+cmrLR4r/HnCBF3OIUGrCr5gZfDfGb0=
+github.com/oarkflow/squealx v0.0.25 h1:qXzs6fF2dzSLyXN0VDJ1azQypEOQLAdFPyy4bMo4D4M=
+github.com/oarkflow/squealx v0.0.25/go.mod h1:IbJ484Wco0E22SjP9wp490ljGyXzG8Ghs0OpcRtpUXA=
 github.com/oarkflow/xid v1.2.5 h1:6RcNJm9+oZ/B647gkME9trCzhpxGQaSdNoD56Vmkeho=
 github.com/oarkflow/xid v1.2.5/go.mod h1:jG4YBh+swbjlWApGWDBYnsJEa7hi3CCpmuqhB3RAxVo=
 github.com/oarkflow/xsync v0.0.5 h1:7HBQjmDus4YFLQFC5D197TB4c2YJTVwsTFuqk5zWKBM=

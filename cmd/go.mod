@@ -42,7 +42,7 @@ require (
 	github.com/oarkflow/pkg v0.1.47 // indirect
 	github.com/oarkflow/protocol v0.0.16 // indirect
 	github.com/oarkflow/render v0.0.1 // indirect
-	github.com/oarkflow/squealx v0.0.24 // indirect
+	github.com/oarkflow/squealx v0.0.25 // indirect
 	github.com/oarkflow/xid v1.2.5 // indirect
 	github.com/oarkflow/xsync v0.0.5 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect

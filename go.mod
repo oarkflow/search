@@ -11,7 +11,7 @@ require (
 	github.com/oarkflow/log v1.0.79
 	github.com/oarkflow/metadata v0.0.64
 	github.com/oarkflow/msgpack v0.0.1
-	github.com/oarkflow/squealx v0.0.24
+	github.com/oarkflow/squealx v0.0.25
 	github.com/oarkflow/xid v1.2.5
 	github.com/oarkflow/xsync v0.0.5
 	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c

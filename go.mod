@@ -1,6 +1,6 @@
 module github.com/oarkflow/search
 
-go 1.22.3
+go 1.23
 
 require (
 	github.com/oarkflow/date v0.0.4
@@ -11,11 +11,11 @@ require (
 	github.com/oarkflow/log v1.0.79
 	github.com/oarkflow/metadata v0.0.64
 	github.com/oarkflow/msgpack v0.0.1
-	github.com/oarkflow/squealx v0.0.25
+	github.com/oarkflow/squealx v0.0.28
 	github.com/oarkflow/xid v1.2.5
 	github.com/oarkflow/xsync v0.0.5
-	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c
-	golang.org/x/text v0.19.0
+	golang.org/x/exp v0.0.0-20241108190413-2d47ceb2692f
+	golang.org/x/text v0.20.0
 )
 
 require (
@@ -42,7 +42,7 @@ require (
 	github.com/oarkflow/dipper v0.0.6 // indirect
 	github.com/oarkflow/errors v0.0.6 // indirect
 	github.com/oarkflow/expr v0.0.11 // indirect
-	github.com/oarkflow/json v0.0.13 // indirect
+	github.com/oarkflow/json v0.0.14 // indirect
 	github.com/oarkflow/pkg v0.1.47 // indirect
 	github.com/oarkflow/protocol v0.0.16 // indirect
 	github.com/oarkflow/render v0.0.1 // indirect
@@ -57,9 +57,9 @@ require (
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xhit/go-simple-mail/v2 v2.16.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/crypto v0.28.0 // indirect
-	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/sys v0.26.0 // indirect
+	golang.org/x/crypto v0.29.0 // indirect
+	golang.org/x/sync v0.9.0 // indirect
+	golang.org/x/sys v0.27.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 )

@@ -34,7 +34,6 @@ func (m *MMap[K, V]) janitor(evictionDuration time.Duration) {
 		case <-ticker.C:
 			now := time.Now()
 			m.mu.Lock()
-			log.Println("Performing cleanup...")
 			for key, lastAccess := range m.lastAccessed {
 				if now.Sub(lastAccess) > evictionDuration {
 					m.inMemory.Del(key)

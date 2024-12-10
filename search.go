@@ -103,6 +103,21 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 	return db, nil
 }
 
+func (db *Engine[Schema]) Reset() error {
+	err := db.documentStorage.Close()
+	if err != nil {
+		return err
+	}
+	db.indexes.Clear()
+	store, err := getStore[Schema](db.cfg)
+	if err != nil {
+		return err
+	}
+	db.documentStorage = store
+	db.indexes = maps.NewMap[string, *Index]()
+	return nil
+}
+
 func (db *Engine[Schema]) offloadIndex() {
 	ticker := time.NewTicker(db.cfg.CleanupPeriod)
 	defer ticker.Stop()

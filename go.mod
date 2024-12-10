@@ -4,7 +4,7 @@ go 1.23
 
 require (
 	github.com/oarkflow/date v0.0.4
-	github.com/oarkflow/filters v0.0.32
+	github.com/oarkflow/filters v0.0.34
 	github.com/oarkflow/flydb v0.0.1
 	github.com/oarkflow/frame v0.0.68
 	github.com/oarkflow/gopool v0.0.2
@@ -14,8 +14,8 @@ require (
 	github.com/oarkflow/squealx v0.0.28
 	github.com/oarkflow/xid v1.2.5
 	github.com/oarkflow/xsync v0.0.5
-	golang.org/x/exp v0.0.0-20241108190413-2d47ceb2692f
-	golang.org/x/text v0.20.0
+	golang.org/x/exp v0.0.0-20241204233417-43b7b7cde48d
+	golang.org/x/text v0.21.0
 )
 
 require (
@@ -29,6 +29,7 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/hetiansu5/urlquery v1.2.7 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -36,7 +37,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
-	github.com/microsoft/go-mssqldb v1.7.2 // indirect
+	github.com/microsoft/go-mssqldb v1.8.0 // indirect
 	github.com/nyaruka/phonenumbers v1.3.5 // indirect
 	github.com/oarkflow/convert v0.0.4 // indirect
 	github.com/oarkflow/dipper v0.0.6 // indirect
@@ -57,9 +58,9 @@ require (
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xhit/go-simple-mail/v2 v2.16.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/crypto v0.29.0 // indirect
-	golang.org/x/sync v0.9.0 // indirect
-	golang.org/x/sys v0.27.0 // indirect
+	golang.org/x/crypto v0.30.0 // indirect
+	golang.org/x/sync v0.10.0 // indirect
+	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 )

@@ -93,3 +93,7 @@ func Engines() (info []EngineInfo) {
 func AddEngine(key string, engine any) {
 	engines.Set(key, engine)
 }
+
+func RemoveEngine(key string) {
+	engines.Del(key)
+}

@@ -39,7 +39,6 @@ func Failed(ctx *frame.Context, code int, message string, additional any, stackT
 }
 
 func Success(ctx *frame.Context, code int, data any, message ...string) {
-	reformatTimes(reflect.ValueOf(&data), TimeFormat)
 	response := Response{
 		Code:    code,
 		Data:    data,

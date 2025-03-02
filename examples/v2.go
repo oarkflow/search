@@ -146,6 +146,8 @@ type ESIndex struct {
 	fieldLengths     map[string]map[int64]int
 	avgFieldLength   map[string]float64
 	tokenOccurrences map[string]map[string]int
+	fieldTotals      map[string]int
+	fieldDocCount    map[string]int
 	mu               sync.RWMutex
 }
 
@@ -157,6 +159,8 @@ func NewESIndex(mapping Mapping) *ESIndex {
 		fieldLengths:     make(map[string]map[int64]int),
 		avgFieldLength:   make(map[string]float64),
 		tokenOccurrences: make(map[string]map[string]int),
+		fieldTotals:      make(map[string]int),
+		fieldDocCount:    make(map[string]int),
 	}
 }
 
@@ -199,13 +203,10 @@ func (idx *ESIndex) Insert(doc Document, id int64) error {
 		}
 		docLength := len(tokens)
 		idx.fieldLengths[field][id] = docLength
-		n := float64(len(idx.fieldLengths[field]))
-		if n == 0 {
-			idx.avgFieldLength[field] = float64(docLength)
-		} else {
-			oldAvg := idx.avgFieldLength[field]
-			idx.avgFieldLength[field] = (oldAvg*(n-1) + float64(docLength)) / n
-		}
+
+		idx.fieldTotals[field] += docLength
+		idx.fieldDocCount[field]++
+		idx.avgFieldLength[field] = float64(idx.fieldTotals[field]) / float64(idx.fieldDocCount[field])
 	}
 	return nil
 }
@@ -621,6 +622,21 @@ func (e *Engine) SearchQuery(q Query) ([]SearchResult, error) {
 	return results, nil
 }
 
+func (e *Engine) SearchQueryWithPagination(q Query, offset, limit int) ([]SearchResult, error) {
+	results, err := e.SearchQuery(q)
+	if err != nil {
+		return nil, err
+	}
+	if offset >= len(results) {
+		return []SearchResult{}, nil
+	}
+	end := offset + limit
+	if end > len(results) {
+		end = len(results)
+	}
+	return results[offset:end], nil
+}
+
 func (e *Engine) Delete(docID int64) error {
 	e.index.mu.Lock()
 	defer e.index.mu.Unlock()
@@ -659,17 +675,15 @@ func (e *Engine) Delete(docID int64) error {
 				}
 			}
 		}
-		delete(e.index.fieldLengths[field], docID)
-		total := 0
-		count := len(e.index.fieldLengths[field])
-		for _, l := range e.index.fieldLengths[field] {
-			total += l
-		}
-		if count > 0 {
-			e.index.avgFieldLength[field] = float64(total) / float64(count)
+		docLength := e.index.fieldLengths[field][docID]
+		e.index.fieldTotals[field] -= docLength
+		e.index.fieldDocCount[field]--
+		if e.index.fieldDocCount[field] > 0 {
+			e.index.avgFieldLength[field] = float64(e.index.fieldTotals[field]) / float64(e.index.fieldDocCount[field])
 		} else {
 			e.index.avgFieldLength[field] = 0
 		}
+		delete(e.index.fieldLengths[field], docID)
 	}
 	delete(e.index.docs, docID)
 	return nil
@@ -716,18 +730,151 @@ func (e *Engine) Update(docID int64, doc Document) error {
 		}
 		docLength := len(tokens)
 		e.index.fieldLengths[field][docID] = docLength
-		total := 0
-		count := len(e.index.fieldLengths[field])
-		for _, l := range e.index.fieldLengths[field] {
-			total += l
-		}
-		if count > 0 {
-			e.index.avgFieldLength[field] = float64(total) / float64(count)
-		} else {
-			e.index.avgFieldLength[field] = 0
-		}
+		e.index.fieldTotals[field] += docLength
+		e.index.fieldDocCount[field]++
+		e.index.avgFieldLength[field] = float64(e.index.fieldTotals[field]) / float64(e.index.fieldDocCount[field])
 	}
 	return nil
+}
+
+func ParseSQL(sql string) (Query, int, int, error) {
+	sql = strings.TrimSpace(sql)
+
+	sql = strings.TrimSuffix(sql, ";")
+	sqlUpper := strings.ToUpper(sql)
+
+	if !strings.HasPrefix(sqlUpper, "SELECT * FROM") {
+		return nil, 0, 0, fmt.Errorf("only 'SELECT * FROM' queries are supported")
+	}
+
+	limit := 10
+	offset := 0
+
+	var wherePart string
+	if idx := strings.Index(sqlUpper, " WHERE "); idx != -1 {
+		wherePart = sql[idx+7:]
+
+		wherePart = removeClause(wherePart, " ORDER BY ")
+		wherePart = removeClause(wherePart, " LIMIT ")
+		wherePart = removeClause(wherePart, " OFFSET ")
+	}
+
+	limit = extractClauseInt(sqlUpper, " LIMIT ", limit)
+	offset = extractClauseInt(sqlUpper, " OFFSET ", offset)
+
+	var q Query = &MatchAllQuery{}
+	if wherePart != "" {
+
+		conds := strings.Split(wherePart, " AND ")
+		var subQueries []Query
+		for _, cond := range conds {
+			cond = strings.TrimSpace(cond)
+			subQ, err := parseCondition(cond)
+			if err != nil {
+				return nil, 0, 0, err
+			}
+			subQueries = append(subQueries, subQ)
+		}
+		q = &BoolQuery{
+			Operator: BoolMust,
+			Queries:  subQueries,
+		}
+	}
+
+	return q, offset, limit, nil
+}
+
+func removeClause(s, clause string) string {
+	if idx := strings.Index(s, clause); idx != -1 {
+		return s[:idx]
+	}
+	return s
+}
+
+func extractClauseInt(sql, clause string, def int) int {
+	if idx := strings.Index(sql, clause); idx != -1 {
+		rest := sql[idx+len(clause):]
+		parts := strings.Fields(rest)
+		if len(parts) > 0 {
+			if n, err := strconv.Atoi(parts[0]); err == nil {
+				return n
+			}
+		}
+	}
+	return def
+}
+
+func parseCondition(cond string) (Query, error) {
+	parts := strings.Fields(cond)
+	if len(parts) < 3 {
+		return nil, fmt.Errorf("invalid condition: %s", cond)
+	}
+	field := parts[0]
+	op := parts[1]
+
+	valueStr := strings.Join(parts[2:], " ")
+	valueStr = strings.Trim(valueStr, "'\"")
+
+	if num, err := strconv.ParseFloat(valueStr, 64); err == nil {
+		switch op {
+		case "=":
+
+			return &RangeQuery{
+				Field:     field,
+				Lower:     num,
+				Upper:     num,
+				Inclusive: true,
+			}, nil
+		case ">":
+			return &RangeQuery{
+				Field:     field,
+				Lower:     num,
+				Upper:     math.MaxFloat64,
+				Inclusive: false,
+			}, nil
+		case ">=":
+			return &RangeQuery{
+				Field:     field,
+				Lower:     num,
+				Upper:     math.MaxFloat64,
+				Inclusive: true,
+			}, nil
+		case "<":
+			return &RangeQuery{
+				Field:     field,
+				Lower:     -math.MaxFloat64,
+				Upper:     num,
+				Inclusive: false,
+			}, nil
+		case "<=":
+			return &RangeQuery{
+				Field:     field,
+				Lower:     -math.MaxFloat64,
+				Upper:     num,
+				Inclusive: true,
+			}, nil
+		default:
+			return nil, fmt.Errorf("unsupported operator: %s", op)
+		}
+	} else {
+
+		if op != "=" {
+			return nil, fmt.Errorf("only '=' operator is supported for string values")
+		}
+		return &TermQuery{
+			Field: field,
+			Term:  valueStr,
+			Fuzzy: false,
+		}, nil
+	}
+}
+
+func (e *Engine) ExecuteSQL(sql string) ([]SearchResult, error) {
+	q, offset, limit, err := ParseSQL(sql)
+	if err != nil {
+		return nil, err
+	}
+	return e.SearchQueryWithPagination(q, offset, limit)
 }
 
 func getMemoryUsageMB() uint64 {
@@ -887,5 +1034,14 @@ func main() {
 		fmt.Println("Boost Query error:", err)
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
+	}
+
+	sqlQuery := "client_proc_desc = 'cryosurg' LIMIT 5 OFFSET 0;"
+	fmt.Println("\nSQL Query:", sqlQuery)
+	results, err = engine.ExecuteSQL(sqlQuery)
+	if err != nil {
+		fmt.Println("SQL Query error:", err)
+	} else {
+		fmt.Printf("SQL Query returned %d results\n", len(results))
 	}
 }

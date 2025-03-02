@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"sort"
 	"strconv"
 	"sync"
@@ -24,22 +23,27 @@ import (
 	"github.com/oarkflow/search/tokenizer"
 )
 
+// Engine holds the search engine implementation.
 type Engine[Schema SchemaProps] struct {
-	m               sync.RWMutex
-	documentStorage storage.Store[int64, Schema]
-	indexes         maps.IMap[string, *Index]
-	indexKeys       []string
-	defaultLanguage tokenizer.Language
-	tokenizerConfig *tokenizer.Config
-	rules           map[string]bool
-	cache           maps.IMap[int64, map[int64]float64]
-	key             string
-	sliceField      string
-	path            string
-	lastAccessedTS  time.Time
-	cfg             *Config
+	m                  sync.RWMutex
+	documentStorage    storage.Store[int64, Schema]
+	indexes            maps.IMap[string, *Index]
+	indexKeys          []string
+	defaultLanguage    tokenizer.Language
+	tokenizerConfig    *tokenizer.Config
+	rules              map[string]bool
+	cache              maps.IMap[int64, map[int64]float64]
+	key                string
+	sliceField         string
+	path               string
+	lastAccessedTS     time.Time
+	cfg                *Config
+	fieldCache         sync.Map        // Cache for reflection metadata: map[reflect.Type][]reflect.StructField
+	fieldsToStoreMap   map[string]bool // Cached fields to store
+	fieldsToExcludeMap map[string]bool // Cached fields to exclude
 }
 
+// New creates a new Engine instance.
 func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 	c := &Config{}
 	if len(cfg) > 0 {
@@ -92,6 +96,19 @@ func New[Schema SchemaProps](cfg ...*Config) (*Engine[Schema], error) {
 		path:            c.Path,
 		cfg:             c,
 	}
+	if len(c.FieldsToStore) > 0 {
+		db.fieldsToStoreMap = make(map[string]bool)
+		for _, field := range c.FieldsToStore {
+			db.fieldsToStoreMap[field] = true
+		}
+	}
+	if len(c.FieldsToExclude) > 0 {
+		db.fieldsToExcludeMap = make(map[string]bool)
+		for _, field := range c.FieldsToExclude {
+			db.fieldsToExcludeMap[field] = true
+		}
+	}
+
 	db.buildIndexes()
 	if len(db.indexKeys) == 0 {
 		db.addIndexes(c.IndexKeys)
@@ -126,20 +143,28 @@ func (db *Engine[Schema]) offloadIndex() {
 		select {
 		case <-ticker.C:
 			now := time.Now()
-			db.m.Lock()
 			if now.Sub(db.lastAccessedTS) > db.cfg.EvictionDuration {
+				var keysToOffload []string
+				db.m.RLock()
 				db.indexes.ForEach(func(key string, index *Index) bool {
 					if index != nil {
-						log.Info().Str("engine_key", db.key).Str("index_key", key).Msg("Performing index cleanup...")
-						err := index.Save()
-						if err == nil {
-							db.indexes.Set(key, nil)
-						}
+						keysToOffload = append(keysToOffload, key)
 					}
 					return true
 				})
+				db.m.RUnlock()
+				for _, key := range keysToOffload {
+					go func(key string) {
+						index, ok := db.indexes.Get(key)
+						if ok && index != nil {
+							log.Info().Str("engine_key", db.key).Str("index_key", key).Msg("Performing index cleanup...")
+							if err := index.Save(); err == nil {
+								db.indexes.Set(key, nil)
+							}
+						}
+					}(key)
+				}
 			}
-			db.m.Unlock()
 		}
 	}
 }
@@ -188,38 +213,38 @@ func (db *Engine[Schema]) Storage() storage.Store[int64, Schema] {
 
 func (db *Engine[Schema]) Insert(doc Schema, lang ...tokenizer.Language) (Record[Schema], error) {
 	if len(db.cfg.FieldsToStore) > 0 {
-		switch doc := any(doc).(type) {
+		switch d := any(doc).(type) {
 		case map[string]any:
-			for k := range doc {
-				if !slices.Contains(db.cfg.FieldsToStore, k) {
-					delete(doc, k)
+			for k := range d {
+				if !db.fieldsToStoreMap[k] {
+					delete(d, k)
 				}
 			}
 		case map[any]any:
-			for k := range doc {
-				switch k := k.(type) {
+			for k := range d {
+				switch key := k.(type) {
 				case string:
-					if !slices.Contains(db.cfg.FieldsToStore, k) {
-						delete(doc, k)
+					if !db.fieldsToStoreMap[key] {
+						delete(d, k)
 					}
 				}
 			}
 		}
 	}
 	if len(db.cfg.FieldsToExclude) > 0 {
-		switch doc := any(doc).(type) {
+		switch d := any(doc).(type) {
 		case map[string]any:
-			for k := range doc {
-				if slices.Contains(db.cfg.FieldsToExclude, k) {
-					delete(doc, k)
+			for k := range d {
+				if db.fieldsToExcludeMap[k] {
+					delete(d, k)
 				}
 			}
 		case map[any]any:
-			for k := range doc {
-				switch k := k.(type) {
+			for k := range d {
+				switch key := k.(type) {
 				case string:
-					if slices.Contains(db.cfg.FieldsToExclude, k) {
-						delete(doc, k)
+					if db.fieldsToExcludeMap[key] {
+						delete(d, k)
 					}
 				}
 			}
@@ -271,8 +296,7 @@ func (db *Engine[Schema]) InsertWithPool(docs []Schema, noOfWorker, batchSize in
 	}
 	for i, doc := range docs {
 		if i == 0 {
-			// Checking for first doc to make sure indexKeys are added on first Insert
-			// if not already exists
+			// Ensure indexKeys are set up on first Insert.
 			_, err := db.Insert(doc, language)
 			if err != nil {
 				errs = append(errs, err)
@@ -301,8 +325,8 @@ func (db *Engine[Schema]) Update(params *UpdateParams[Schema]) (Record[Schema], 
 		return Record[Schema]{}, fmt.Errorf("document not found")
 	}
 	db.indexDocument(params.Id, document, language)
-	document = db.flattenSchema(oldDocument)
-	db.deIndexDocument(params.Id, document, language)
+	oldDocFlatten := db.flattenSchema(oldDocument)
+	db.deIndexDocument(params.Id, oldDocFlatten, language)
 	err := db.SetDocument(params.Id, params.Document)
 	if err != nil {
 		return Record[Schema]{}, err
@@ -332,12 +356,12 @@ func (db *Engine[Schema]) ClearCache() {
 	db.cache = nil
 }
 
-// CheckCondition function checks if a key-value map exists in any type of data
+// CheckCondition verifies if a document matches the given filter rule.
 func (db *Engine[Schema]) CheckCondition(data Schema, filter *filters.Rule) bool {
 	return filter.Match(data)
 }
 
-// Check function checks if a key-value map exists in any type of data
+// Check verifies if a document matches a set of filters.
 func (db *Engine[Schema]) Check(data Schema, filter []*filters.Filter) bool {
 	var conditions []filters.Condition
 	for _, f := range filter {
@@ -359,7 +383,7 @@ func (db *Engine[Schema]) Sample(params storage.SampleParams) (Result[Schema], e
 	return db.prepareResult(results, &Params{Paginate: false, Filters: params.Filters, SortOrder: params.SortOrder, SortField: params.SortField})
 }
 
-// Search - uses params to search
+// Search performs a query using the provided parameters.
 func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	if params.SortOrder == "" {
 		params.SortOrder = db.cfg.SortOrder
@@ -404,7 +428,6 @@ func (db *Engine[Schema]) Search(params *Params) (Result[Schema], error) {
 	if len(allIdScores) == 0 && params.Query == "" {
 		return db.sampleWithFilters(storage.SampleParams{Size: params.Limit, Rule: filter, Filters: params.Filters, SortOrder: params.SortOrder, SortField: params.SortField})
 	}
-	// Step 1: Extract and sort keys
 	keys := make([]int64, 0, len(allIdScores))
 	for key := range allIdScores {
 		keys = append(keys, key)
@@ -554,7 +577,13 @@ func (db *Engine[Schema]) getFieldsFromStruct(obj any, prefix ...string) map[str
 	fields := make(map[string]any)
 	t := reflect.TypeOf(obj)
 	v := reflect.ValueOf(obj)
-	visibleFields := reflect.VisibleFields(t)
+	var visibleFields []reflect.StructField
+	if cached, ok := db.fieldCache.Load(t); ok {
+		visibleFields = cached.([]reflect.StructField)
+	} else {
+		visibleFields = reflect.VisibleFields(t)
+		db.fieldCache.Store(t, visibleFields)
+	}
 	hasIndexField := false
 	for i, field := range visibleFields {
 		if propName, ok := field.Tag.Lookup("index"); ok {
@@ -567,7 +596,12 @@ func (db *Engine[Schema]) getFieldsFromStruct(obj any, prefix ...string) map[str
 					fields[key] = value
 				}
 			} else {
-				fields[propName] = v.Field(i).String()
+				// Use type assertion for efficiency.
+				if s, ok := v.Field(i).Interface().(string); ok {
+					fields[propName] = s
+				} else {
+					fields[propName] = fmt.Sprint(v.Field(i).Interface())
+				}
 			}
 		}
 	}
@@ -577,13 +611,16 @@ func (db *Engine[Schema]) getFieldsFromStruct(obj any, prefix ...string) map[str
 			if len(prefix) == 1 {
 				propName = fmt.Sprintf("%s.%s", prefix[0], propName)
 			}
-
 			if field.Type.Kind() == reflect.Struct {
 				for key, value := range db.flattenSchema(v.Field(i).Interface(), propName) {
 					fields[key] = value
 				}
 			} else {
-				fields[propName] = v.Field(i).String()
+				if s, ok := v.Field(i).Interface().(string); ok {
+					fields[propName] = s
+				} else {
+					fields[propName] = fmt.Sprint(v.Field(i).Interface())
+				}
 			}
 		}
 	}

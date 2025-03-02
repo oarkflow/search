@@ -13,11 +13,14 @@ func main() {
 	bt := []byte(`{"sort_field": "display_name"}`)
 	var params search.Params
 	json.Unmarshal(bt, &params)
-	icds := lib.ReadFileAsMap("billing-providers.json")
-	db, _ := search.New[map[string]any](&search.Config{Storage: "memdb", Path: "fts"})
+	icds := lib.ReadFileAsMap("cpt_codes.json")
+	db, _ := search.New[map[string]any](&search.Config{Storage: "mmap"})
 	var startTime = time.Now()
 	before := lib.Stats()
-	db.InsertWithPool(icds, 3, 100)
+	for _, icd := range icds {
+		db.Insert(icd)
+	}
+	// db.InsertWithPool(icds, 3, 100)
 	after := lib.Stats()
 	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	fmt.Println("Total Documents", db.DocumentLen())

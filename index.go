@@ -33,7 +33,7 @@ type Index struct {
 	AvgFieldLength   float64
 	FieldLengths     map[int64]int
 	TokenOccurrences map[string]int
-	mu               sync.RWMutex // Use a m for thread safety
+	mu               sync.RWMutex // per-index lock
 	ID               string
 	Prefix           string
 }
@@ -55,8 +55,8 @@ func (idx *Index) Insert(id int64, tokens map[string]int, docsCount int) {
 	for token, count := range tokens {
 		tokenFrequency := float64(count) / float64(totalTokens)
 		idx.Data.Insert(id, token, tokenFrequency)
+		idx.TokenOccurrences[token] += count
 	}
-
 	idx.AvgFieldLength = (idx.AvgFieldLength*float64(docsCount-1) + float64(totalTokens)) / float64(docsCount)
 	idx.FieldLengths[id] = totalTokens
 }
@@ -66,12 +66,11 @@ func (idx *Index) Delete(id int64, tokens map[string]int, docsCount int) {
 	defer idx.mu.Unlock()
 	for token := range tokens {
 		idx.Data.Delete(id, token)
-		idx.TokenOccurrences[token]--
-		if idx.TokenOccurrences[token] == 0 {
+		idx.TokenOccurrences[token] -= tokens[token]
+		if idx.TokenOccurrences[token] <= 0 {
 			delete(idx.TokenOccurrences, token)
 		}
 	}
-
 	idx.AvgFieldLength = (idx.AvgFieldLength*float64(docsCount) - float64(len(tokens))) / float64(docsCount-1)
 	delete(idx.FieldLengths, id)
 }
@@ -142,8 +141,6 @@ func NewFromFile(prefix string, filePath string) (*Index, error) {
 		return nil, err
 	}
 	defer file.Close()
-
-	// Use a buffered reader to improve read performance
 	bufferedReader := bufio.NewReader(file)
 	return NewFromReader(bufferedReader, prefix)
 }

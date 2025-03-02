@@ -24,9 +24,17 @@ func (db *Engine[Schema]) addIndex(key string) {
 }
 
 func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, language tokenizer.Language) {
-	db.m.Lock()
-	defer db.m.Unlock()
+	docsCount := db.DocumentLen() // compute once
+	// Copy current indexes to avoid holding global lock during tokenization.
+	indexesCopy := make(map[string]*Index)
+	db.m.RLock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
+		indexesCopy[propName] = index
+		return true
+	})
+	db.m.RUnlock()
+
+	for propName, index := range indexesCopy {
 		text := lib.ToString(document[propName])
 		tokens := tokensPool.Get()
 		clear(tokens)
@@ -35,17 +43,23 @@ func (db *Engine[Schema]) indexDocument(id int64, document map[string]any, langu
 			Language:        language,
 			AllowDuplicates: true,
 		}, *db.tokenizerConfig, tokens)
-		index.Insert(id, tokens, db.DocumentLen())
+		index.Insert(id, tokens, docsCount)
 		clear(tokens)
 		tokensPool.Put(tokens)
-		return true
-	})
+	}
 }
 
 func (db *Engine[Schema]) deIndexDocument(id int64, document map[string]any, language tokenizer.Language) {
-	db.m.Lock()
-	defer db.m.Unlock()
+	docsCount := db.DocumentLen()
+	indexesCopy := make(map[string]*Index)
+	db.m.RLock()
 	db.indexes.ForEach(func(propName string, index *Index) bool {
+		indexesCopy[propName] = index
+		return true
+	})
+	db.m.RUnlock()
+
+	for propName, index := range indexesCopy {
 		tokens := tokensPool.Get()
 		clear(tokens)
 		_ = tokenizer.Tokenize(tokenizer.TokenizeParams{
@@ -53,9 +67,8 @@ func (db *Engine[Schema]) deIndexDocument(id int64, document map[string]any, lan
 			Language:        language,
 			AllowDuplicates: false,
 		}, *db.tokenizerConfig, tokens)
-		index.Delete(id, tokens, db.DocumentLen())
+		index.Delete(id, tokens, docsCount)
 		clear(tokens)
 		tokensPool.Put(tokens)
-		return true
-	})
+	}
 }

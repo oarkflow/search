@@ -2,12 +2,10 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -690,7 +688,6 @@ func (e *Engine) SearchQuery(q Query) ([]SearchResult, error) {
 	return results, nil
 }
 
-// SearchQueryWithPagination Pagination for Query-based searches.
 func (e *Engine) SearchQueryWithPagination(q Query, page, pageSize int) ([]SearchResult, error) {
 	results, err := e.SearchQuery(q)
 	if err != nil {
@@ -707,7 +704,6 @@ func (e *Engine) SearchQueryWithPagination(q Query, page, pageSize int) ([]Searc
 	return results[start:end], nil
 }
 
-// SearchWithPagination Pagination for full-text string queries.
 func (e *Engine) SearchWithPagination(query string, page, pageSize int) ([]SearchResult, error) {
 	results, err := e.Search(query)
 	if err != nil {
@@ -834,11 +830,7 @@ func (e *Engine) Update(docID int64, doc Document) error {
 }
 
 func main() {
-	docs, err := readJSONFile("sample.json")
-	if err != nil {
-		fmt.Println("Error loading JSON:", err)
-		return
-	}
+	docs := lib.ReadFileAsMap("sample.json")
 	analyzer := NewEnhancedAnalyzer(true, true)
 	mapping := Mapping{
 		Fields: map[string]FieldMapping{
@@ -873,7 +865,7 @@ func main() {
 		B: 0.75,
 	}
 	engine := NewEngine(mapping, bm25Params)
-	beforeMem := getMemoryUsageMB()
+	beforeMem := lib.Stats()
 	startIndex := time.Now()
 	var wg sync.WaitGroup
 	for _, doc := range docs {
@@ -887,7 +879,7 @@ func main() {
 	}
 	wg.Wait()
 	indexDuration := time.Since(startIndex)
-	afterMem := getMemoryUsageMB()
+	afterMem := lib.Stats()
 	fmt.Printf("Indexing took: %s\n", indexDuration)
 	fmt.Printf("Memory Usage: Before: %dMB, After: %dMB, Delta: %dMB\n", beforeMem, afterMem, afterMem-beforeMem)
 
@@ -987,20 +979,4 @@ func main() {
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
 	}
-}
-
-func getMemoryUsageMB() uint64 {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	return m.Alloc / 1024 / 1024
-}
-
-func readJSONFile(filename string) ([]Document, error) {
-	bytes, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	var docs []Document
-	err = json.Unmarshal(bytes, &docs)
-	return docs, err
 }

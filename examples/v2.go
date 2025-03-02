@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/oarkflow/search/stemmer"
-	"github.com/oarkflow/search/tokenizer/stopwords"
 	"math"
 	"os"
 	"path/filepath"
@@ -17,6 +15,9 @@ import (
 	"time"
 
 	"github.com/oarkflow/msgpack"
+
+	"github.com/oarkflow/search/stemmer"
+	"github.com/oarkflow/search/tokenizer/stopwords"
 )
 
 type BM25Params struct {
@@ -163,7 +164,6 @@ func NewESIndex(mapping Mapping) *ESIndex {
 func (idx *ESIndex) Insert(doc Document, id int64) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
-
 	idx.docs[id] = doc
 	for field, fieldMapping := range idx.mapping.Fields {
 		if !fieldMapping.Index {
@@ -175,7 +175,6 @@ func (idx *ESIndex) Insert(doc Document, id int64) error {
 		}
 		text := fmt.Sprintf("%v", val)
 		tokens := fieldMapping.Analyzer.Analyze(text)
-
 		if _, ok := idx.invertedIndex[field]; !ok {
 			idx.invertedIndex[field] = make(map[string]map[int64][]int)
 		}
@@ -231,6 +230,18 @@ func (idx *ESIndex) Search(query string, bm25Params BM25Params) ([]SearchResult,
 						}
 						for docID, posList := range candidatePosting {
 							posting[docID] = append(posting[docID], posList...)
+						}
+					}
+				}
+				if posting == nil {
+					for token, candidatePosting := range idx.invertedIndex[field] {
+						if strings.Contains(token, qToken) || strings.Contains(qToken, token) {
+							if posting == nil {
+								posting = make(map[int64][]int)
+							}
+							for docID, posList := range candidatePosting {
+								posting[docID] = append(posting[docID], posList...)
+							}
 						}
 					}
 				}
@@ -332,8 +343,13 @@ func (tq *TermQuery) Execute(e *Engine) (map[int64]float64, error) {
 			}
 		}
 	}
-	term := strings.ToLower(tq.Term)
 	for _, field := range fieldsToSearch {
+		fm := e.index.mapping.Fields[field]
+		analyzed := fm.Analyzer.Analyze(tq.Term)
+		if len(analyzed) == 0 {
+			continue
+		}
+		term := analyzed[0]
 		posting, exists := e.index.invertedIndex[field][term]
 		if !exists && tq.Fuzzy {
 			for token, candidatePosting := range e.index.invertedIndex[field] {
@@ -343,6 +359,18 @@ func (tq *TermQuery) Execute(e *Engine) (map[int64]float64, error) {
 					}
 					for docID, posList := range candidatePosting {
 						posting[docID] = append(posting[docID], posList...)
+					}
+				}
+			}
+			if posting == nil {
+				for token, candidatePosting := range e.index.invertedIndex[field] {
+					if strings.Contains(token, term) || strings.Contains(term, token) {
+						if posting == nil {
+							posting = make(map[int64][]int)
+						}
+						for docID, posList := range candidatePosting {
+							posting[docID] = append(posting[docID], posList...)
+						}
 					}
 				}
 			}
@@ -578,6 +606,112 @@ func (bq *BoostQuery) Execute(e *Engine) (map[int64]float64, error) {
 	return res, nil
 }
 
+type SQLQuery struct {
+	SQL string
+}
+
+func (sq *SQLQuery) Execute(e *Engine) (map[int64]float64, error) {
+	parsedQuery, err := parseSQLQuery(sq.SQL)
+	if err != nil {
+		return nil, err
+	}
+	return parsedQuery.Execute(e)
+}
+
+func parseSQLQuery(sql string) (Query, error) {
+	condTokens := strings.Fields(sql)
+	var queries []Query
+	var currentCond []string
+	for _, token := range condTokens {
+		if strings.ToUpper(token) == "AND" {
+			if len(currentCond) > 0 {
+				q, err := parseCondition(currentCond)
+				if err != nil {
+					return nil, err
+				}
+				queries = append(queries, q)
+				currentCond = []string{}
+			}
+		} else {
+			currentCond = append(currentCond, token)
+		}
+	}
+	if len(currentCond) > 0 {
+		q, err := parseCondition(currentCond)
+		if err != nil {
+			return nil, err
+		}
+		queries = append(queries, q)
+	}
+	if len(queries) == 1 {
+		return queries[0], nil
+	}
+	return &BoolQuery{
+		Operator: BoolMust,
+		Queries:  queries,
+	}, nil
+}
+
+func parseCondition(tokens []string) (Query, error) {
+	if len(tokens) < 3 {
+		return nil, fmt.Errorf("invalid condition")
+	}
+	field := tokens[0]
+	op := tokens[1]
+	value := strings.Join(tokens[2:], " ")
+	value = strings.Trim(value, "'\"")
+	if num, err := strconv.ParseFloat(value, 64); err == nil {
+		switch op {
+		case "=":
+			return &RangeQuery{
+				Field:     field,
+				Lower:     num,
+				Upper:     num,
+				Inclusive: true,
+			}, nil
+		case ">":
+			return &RangeQuery{
+				Field:     field,
+				Lower:     num,
+				Upper:     math.MaxFloat64,
+				Inclusive: false,
+			}, nil
+		case ">=":
+			return &RangeQuery{
+				Field:     field,
+				Lower:     num,
+				Upper:     math.MaxFloat64,
+				Inclusive: true,
+			}, nil
+		case "<":
+			return &RangeQuery{
+				Field:     field,
+				Lower:     -math.MaxFloat64,
+				Upper:     num,
+				Inclusive: false,
+			}, nil
+		case "<=":
+			return &RangeQuery{
+				Field:     field,
+				Lower:     -math.MaxFloat64,
+				Upper:     num,
+				Inclusive: true,
+			}, nil
+		default:
+			return nil, fmt.Errorf("unsupported operator: %s", op)
+		}
+	} else {
+		if op != "=" {
+			return nil, fmt.Errorf("unsupported operator for string: %s", op)
+		}
+		return &TermQuery{
+			Field: field,
+			Term:  value,
+			Fuzzy: true,
+		}, nil
+	}
+}
+
 type Engine struct {
 	index      *ESIndex
 	bm25Params BM25Params
@@ -619,6 +753,40 @@ func (e *Engine) SearchQuery(q Query) ([]SearchResult, error) {
 		return results[i].Score > results[j].Score
 	})
 	return results, nil
+}
+
+// SearchQueryWithPagination Pagination for Query-based searches.
+func (e *Engine) SearchQueryWithPagination(q Query, page, pageSize int) ([]SearchResult, error) {
+	results, err := e.SearchQuery(q)
+	if err != nil {
+		return nil, err
+	}
+	start := (page - 1) * pageSize
+	if start >= len(results) {
+		return []SearchResult{}, nil
+	}
+	end := start + pageSize
+	if end > len(results) {
+		end = len(results)
+	}
+	return results[start:end], nil
+}
+
+// SearchWithPagination Pagination for full-text string queries.
+func (e *Engine) SearchWithPagination(query string, page, pageSize int) ([]SearchResult, error) {
+	results, err := e.Search(query)
+	if err != nil {
+		return nil, err
+	}
+	start := (page - 1) * pageSize
+	if start >= len(results) {
+		return []SearchResult{}, nil
+	}
+	end := start + pageSize
+	if end > len(results) {
+		end = len(results)
+	}
+	return results[start:end], nil
 }
 
 func (e *Engine) Delete(docID int64) error {
@@ -730,24 +898,8 @@ func (e *Engine) Update(docID int64, doc Document) error {
 	return nil
 }
 
-func getMemoryUsageMB() uint64 {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	return m.Alloc / 1024 / 1024
-}
-
-func readJSONFile(filename string) ([]Document, error) {
-	bytes, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	var docs []Document
-	err = json.Unmarshal(bytes, &docs)
-	return docs, err
-}
-
 func main() {
-	docs, err := readJSONFile("cpt_codes.json")
+	docs, err := readJSONFile("sample.json")
 	if err != nil {
 		fmt.Println("Error loading JSON:", err)
 		return
@@ -788,35 +940,40 @@ func main() {
 	engine := NewEngine(mapping, bm25Params)
 	beforeMem := getMemoryUsageMB()
 	startIndex := time.Now()
+	var wg sync.WaitGroup
 	for _, doc := range docs {
-		_, err := engine.Insert(doc)
-		if err != nil {
-			fmt.Println("Error indexing document:", err)
-			continue
-		}
+		wg.Add(1)
+		go func(d Document) {
+			defer wg.Done()
+			if _, err := engine.Insert(d); err != nil {
+				fmt.Println("Error indexing document:", err)
+			}
+		}(doc)
 	}
+	wg.Wait()
 	indexDuration := time.Since(startIndex)
 	afterMem := getMemoryUsageMB()
 	fmt.Printf("Indexing took: %s\n", indexDuration)
 	fmt.Printf("Memory Usage: Before: %dMB, After: %dMB, Delta: %dMB\n", beforeMem, afterMem, afterMem-beforeMem)
-	fmt.Println("\nFull Text Search Query: 'cryosurg ablation'")
-	results, err := engine.Search("cryosurg ablation")
+
+	fmt.Println("\nFull Text Search Query: 'zith' (Page 1, PageSize 5)")
+	results, err := engine.SearchWithPagination("zith", 1, 5)
 	if err != nil {
 		fmt.Println("Search error:", err)
 	} else {
-		fmt.Printf("Found %d results\n", len(results))
+		fmt.Printf("Found %d results on page 1\n", len(results))
 	}
 	termQuery := &TermQuery{
 		Field: "client_proc_desc",
-		Term:  "cryosurg",
-		Fuzzy: false,
+		Term:  "zith",
+		Fuzzy: true,
 	}
-	fmt.Println("\nTerm Query (Field: client_proc_desc, Term: 'cryosurg')")
-	results, err = engine.SearchQuery(termQuery)
+	fmt.Println("\nTerm Query (Field: client_proc_desc, Term: 'zith') (Page 1, PageSize 5)")
+	results, err = engine.SearchQueryWithPagination(termQuery, 1, 5)
 	if err != nil {
 		fmt.Println("Term Query error:", err)
 	} else {
-		fmt.Printf("Found %d results\n", len(results))
+		fmt.Printf("Found %d results on page 1\n", len(results))
 	}
 	rangeQuery := &RangeQuery{
 		Field:     "work_item_id",
@@ -838,7 +995,7 @@ func main() {
 			rangeQuery,
 		},
 	}
-	fmt.Println("\nBoolean Query (MUST: term 'cryosurg' AND work_item_id between 30 and 50)")
+	fmt.Println("\nBoolean Query (MUST: term 'zith' AND work_item_id between 30 and 50)")
 	results, err = engine.SearchQuery(boolQuery)
 	if err != nil {
 		fmt.Println("Boolean Query error:", err)
@@ -855,37 +1012,60 @@ func main() {
 	}
 	prefixQuery := &PrefixQuery{
 		Field:  "client_proc_desc",
-		Prefix: "cryo",
+		Prefix: "zith",
 	}
-	fmt.Println("\nPrefix Query (Field: client_proc_desc, Prefix: 'cryo')")
+	fmt.Println("\nPrefix Query (Field: client_proc_desc, Prefix: 'zith')")
 	results, err = engine.SearchQuery(prefixQuery)
 	if err != nil {
 		fmt.Println("Prefix Query error:", err)
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
 	}
-
 	phraseQuery := &PhraseQuery{
 		Field:  "client_proc_desc",
-		Phrase: "cryosurg ablation",
+		Phrase: "zofran",
 	}
-	fmt.Println("\nPhrase Query (Field: client_proc_desc, Phrase: 'cryosurg ablation')")
+	fmt.Println("\nPhrase Query (Field: client_proc_desc, Phrase: 'zith')")
 	results, err = engine.SearchQuery(phraseQuery)
 	if err != nil {
 		fmt.Println("Phrase Query error:", err)
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
 	}
-
 	boostQuery := &BoostQuery{
 		Query: termQuery,
 		Boost: 2.0,
 	}
-	fmt.Println("\nBoost Query (Boosting term 'cryosurg' by 2.0)")
+	fmt.Println("\nBoost Query (Boosting term 'zith' by 2.0)")
 	results, err = engine.SearchQuery(boostQuery)
 	if err != nil {
 		fmt.Println("Boost Query error:", err)
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
 	}
+	sqlQueryStr := "client_proc_desc = 'zith' AND work_item_id >= 30 AND work_item_id <= 50"
+	sqlQuery := &SQLQuery{SQL: sqlQueryStr}
+	fmt.Println("\nSQL Query:", sqlQueryStr)
+	results, err = engine.SearchQuery(sqlQuery)
+	if err != nil {
+		fmt.Println("SQL Query error:", err)
+	} else {
+		fmt.Printf("Found %d results\n", len(results))
+	}
+}
+
+func getMemoryUsageMB() uint64 {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return m.Alloc / 1024 / 1024
+}
+
+func readJSONFile(filename string) ([]Document, error) {
+	bytes, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	var docs []Document
+	err = json.Unmarshal(bytes, &docs)
+	return docs, err
 }

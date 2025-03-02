@@ -16,75 +16,10 @@ import (
 
 	"github.com/oarkflow/msgpack"
 
+	"github.com/oarkflow/search/lib"
 	"github.com/oarkflow/search/stemmer"
 	"github.com/oarkflow/search/tokenizer/stopwords"
 )
-
-type BM25Params struct {
-	K float64
-	B float64
-}
-
-func BM25(frequency float64, docLength int, avgDocLength float64, totalDocs int, docFreq int, params BM25Params) float64 {
-	idf := 0.0
-	if docFreq > 0 {
-		idf = math.Log((float64(totalDocs)-float64(docFreq)+0.5)/(float64(docFreq)+0.5) + 1)
-	}
-	tf := (frequency * (params.K + 1)) / (frequency + params.K*(1.0-params.B+params.B*(float64(docLength)/avgDocLength)))
-	return idf * tf
-}
-
-func BoundedLevenshtein(a, b string, maxDist int) (int, bool) {
-	lenA, lenB := len(a), len(b)
-	if abs(lenA-lenB) > maxDist {
-		return maxDist + 1, false
-	}
-	prev := make([]int, lenB+1)
-	for j := 0; j <= lenB; j++ {
-		prev[j] = j
-	}
-	for i := 1; i <= lenA; i++ {
-		current := make([]int, lenB+1)
-		current[0] = i
-		minInRow := current[0]
-		for j := 1; j <= lenB; j++ {
-			cost := 0
-			if a[i-1] != b[j-1] {
-				cost = 1
-			}
-			current[j] = minVal(prev[j]+1, current[j-1]+1, prev[j-1]+cost)
-			if current[j] < minInRow {
-				minInRow = current[j]
-			}
-		}
-		if minInRow > maxDist {
-			return maxDist + 1, false
-		}
-		prev = current
-	}
-	distance := prev[lenB]
-	return distance, distance <= maxDist
-}
-
-func minVal(a, b, c int) int {
-	if a < b {
-		if a < c {
-			return a
-		}
-		return c
-	}
-	if b < c {
-		return b
-	}
-	return c
-}
-
-func abs(a int) int {
-	if a < 0 {
-		return -a
-	}
-	return a
-}
 
 const fuzzyThreshold = 1
 
@@ -140,7 +75,7 @@ type Mapping struct {
 
 type Document map[string]interface{}
 
-type ESIndex struct {
+type Index struct {
 	invertedIndex    map[string]map[string]map[int64][]int
 	docs             map[int64]Document
 	mapping          Mapping
@@ -150,8 +85,8 @@ type ESIndex struct {
 	mu               sync.RWMutex
 }
 
-func NewESIndex(mapping Mapping) *ESIndex {
-	return &ESIndex{
+func NewIndex(mapping Mapping) *Index {
+	return &Index{
 		invertedIndex:    make(map[string]map[string]map[int64][]int),
 		docs:             make(map[int64]Document),
 		mapping:          mapping,
@@ -161,7 +96,7 @@ func NewESIndex(mapping Mapping) *ESIndex {
 	}
 }
 
-func (idx *ESIndex) Insert(doc Document, id int64) error {
+func (idx *Index) Insert(doc Document, id int64) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	idx.docs[id] = doc
@@ -209,7 +144,7 @@ func (idx *ESIndex) Insert(doc Document, id int64) error {
 	return nil
 }
 
-func (idx *ESIndex) Search(query string, bm25Params BM25Params) ([]SearchResult, error) {
+func (idx *Index) Search(query string, bm25Params lib.BM25Params) ([]SearchResult, error) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 	scoreMap := make(map[int64]float64)
@@ -224,7 +159,7 @@ func (idx *ESIndex) Search(query string, bm25Params BM25Params) ([]SearchResult,
 			posting, exists := idx.invertedIndex[field][qToken]
 			if !exists {
 				for token, candidatePosting := range idx.invertedIndex[field] {
-					if dist, ok := BoundedLevenshtein(qToken, token, fuzzyThreshold); ok && dist <= fuzzyThreshold {
+					if dist, ok := lib.BoundedLevenshtein([]rune(qToken), []rune(token), fuzzyThreshold); ok && dist <= fuzzyThreshold {
 						if posting == nil {
 							posting = make(map[int64][]int)
 						}
@@ -255,7 +190,7 @@ func (idx *ESIndex) Search(query string, bm25Params BM25Params) ([]SearchResult,
 					if docFreq == 0 {
 						docFreq = 1
 					}
-					score := BM25(float64(freq), docLength, avgLength, totalDocs, docFreq, bm25Params)
+					score := lib.BM25V2(float64(freq), docLength, avgLength, totalDocs, docFreq, bm25Params)
 					scoreMap[docID] += score
 				}
 			}
@@ -273,7 +208,7 @@ func (idx *ESIndex) Search(query string, bm25Params BM25Params) ([]SearchResult,
 	return results, nil
 }
 
-func (idx *ESIndex) Save(prefix, id string) error {
+func (idx *Index) Save(prefix, id string) error {
 	filePath := filename(prefix, id)
 	file, err := os.Create(filePath)
 	if err != nil {
@@ -290,7 +225,7 @@ func (idx *ESIndex) Save(prefix, id string) error {
 	return encoder.Encode(idx)
 }
 
-func (idx *ESIndex) Load(prefix, id string) error {
+func (idx *Index) Load(prefix, id string) error {
 	filePath := filename(prefix, id)
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -353,7 +288,7 @@ func (tq *TermQuery) Execute(e *Engine) (map[int64]float64, error) {
 		posting, exists := e.index.invertedIndex[field][term]
 		if !exists && tq.Fuzzy {
 			for token, candidatePosting := range e.index.invertedIndex[field] {
-				if dist, ok := BoundedLevenshtein(term, token, fuzzyThreshold); ok && dist <= fuzzyThreshold {
+				if dist, ok := lib.BoundedLevenshtein([]rune(term), []rune(token), fuzzyThreshold); ok && dist <= fuzzyThreshold {
 					if posting == nil {
 						posting = make(map[int64][]int)
 					}
@@ -713,13 +648,13 @@ func parseCondition(tokens []string) (Query, error) {
 }
 
 type Engine struct {
-	index      *ESIndex
-	bm25Params BM25Params
+	index      *Index
+	bm25Params lib.BM25Params
 }
 
-func NewEngine(mapping Mapping, bm25Params BM25Params) *Engine {
+func NewEngine(mapping Mapping, bm25Params lib.BM25Params) *Engine {
 	return &Engine{
-		index:      NewESIndex(mapping),
+		index:      NewIndex(mapping),
 		bm25Params: bm25Params,
 	}
 }
@@ -933,7 +868,7 @@ func main() {
 			},
 		},
 	}
-	bm25Params := BM25Params{
+	bm25Params := lib.BM25Params{
 		K: 1.2,
 		B: 0.75,
 	}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/oarkflow/search/stemmer"
 	"github.com/oarkflow/search/tokenizer/stopwords"
 	"math"
 	"os"
@@ -91,12 +92,14 @@ type Analyzer interface {
 }
 
 type EnhancedAnalyzer struct {
-	Unique bool
+	Unique   bool
+	Stemming bool
 }
 
-func NewEnhancedAnalyzer(unique bool) *EnhancedAnalyzer {
+func NewEnhancedAnalyzer(unique, stemming bool) *EnhancedAnalyzer {
 	return &EnhancedAnalyzer{
-		Unique: unique,
+		Unique:   unique,
+		Stemming: stemming,
 	}
 }
 
@@ -108,6 +111,9 @@ func (a *EnhancedAnalyzer) Analyze(text string) []string {
 		token := strings.ToLower(word)
 		if _, ok := stopwords.English[token]; ok {
 			continue
+		}
+		if a.Stemming {
+			token = stemmer.StemString(token)
 		}
 		if a.Unique {
 			if seen[token] {
@@ -746,7 +752,7 @@ func main() {
 		fmt.Println("Error loading JSON:", err)
 		return
 	}
-	analyzer := NewEnhancedAnalyzer(true)
+	analyzer := NewEnhancedAnalyzer(true, true)
 	mapping := Mapping{
 		Fields: map[string]FieldMapping{
 			"charge_type": {

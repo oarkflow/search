@@ -830,7 +830,8 @@ func (e *Engine) Update(docID int64, doc Document) error {
 }
 
 func main() {
-	docs := lib.ReadFileAsMap("sample.json")
+	// Use a helper from lib to read JSON as []Document.
+	docs := lib.ReadFileAsMap("charge_master.json")
 	analyzer := NewEnhancedAnalyzer(true, true)
 	mapping := Mapping{
 		Fields: map[string]FieldMapping{
@@ -867,6 +868,8 @@ func main() {
 	engine := NewEngine(mapping, bm25Params)
 	beforeMem := lib.Stats()
 	startIndex := time.Now()
+
+	// Concurrently insert documents.
 	var wg sync.WaitGroup
 	for _, doc := range docs {
 		wg.Add(1)
@@ -878,11 +881,13 @@ func main() {
 		}(doc)
 	}
 	wg.Wait()
-	indexDuration := time.Since(startIndex)
+
 	afterMem := lib.Stats()
+	indexDuration := time.Since(startIndex)
 	fmt.Printf("Indexing took: %s\n", indexDuration)
 	fmt.Printf("Memory Usage: Before: %dMB, After: %dMB, Delta: %dMB\n", beforeMem, afterMem, afterMem-beforeMem)
 
+	// Example queries:
 	fmt.Println("\nFull Text Search Query: 'zith' (Page 1, PageSize 5)")
 	results, err := engine.SearchWithPagination("zith", 1, 5)
 	if err != nil {
@@ -890,6 +895,7 @@ func main() {
 	} else {
 		fmt.Printf("Found %d results on page 1\n", len(results))
 	}
+	startIndex = time.Now()
 	termQuery := &TermQuery{
 		Field: "client_proc_desc",
 		Term:  "zith",
@@ -902,6 +908,9 @@ func main() {
 	} else {
 		fmt.Printf("Found %d results on page 1\n", len(results))
 	}
+	indexDuration = time.Since(startIndex)
+	fmt.Printf("TermQuery took: %s\n", indexDuration)
+	startIndex = time.Now()
 	rangeQuery := &RangeQuery{
 		Field:     "work_item_id",
 		Lower:     30,
@@ -915,6 +924,9 @@ func main() {
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
 	}
+	indexDuration = time.Since(startIndex)
+	fmt.Printf("Range took: %s\n", indexDuration)
+	startIndex = time.Now()
 	boolQuery := &BoolQuery{
 		Operator: BoolMust,
 		Queries: []Query{
@@ -929,6 +941,9 @@ func main() {
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
 	}
+	indexDuration = time.Since(startIndex)
+	fmt.Printf("BoolQuery took: %s\n", indexDuration)
+	startIndex = time.Now()
 	matchAll := &MatchAllQuery{}
 	fmt.Println("\nMatch All Query")
 	results, err = engine.SearchQuery(matchAll)
@@ -948,9 +963,12 @@ func main() {
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
 	}
+	indexDuration = time.Since(startIndex)
+	fmt.Printf("PrefixQuery took: %s\n", indexDuration)
+	startIndex = time.Now()
 	phraseQuery := &PhraseQuery{
 		Field:  "client_proc_desc",
-		Phrase: "zofran",
+		Phrase: "zith",
 	}
 	fmt.Println("\nPhrase Query (Field: client_proc_desc, Phrase: 'zith')")
 	results, err = engine.SearchQuery(phraseQuery)
@@ -959,6 +977,9 @@ func main() {
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
 	}
+	indexDuration = time.Since(startIndex)
+	fmt.Printf("PhraseQuery took: %s\n", indexDuration)
+	startIndex = time.Now()
 	boostQuery := &BoostQuery{
 		Query: termQuery,
 		Boost: 2.0,
@@ -970,6 +991,9 @@ func main() {
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
 	}
+	indexDuration = time.Since(startIndex)
+	fmt.Printf("BoostQuery took: %s\n", indexDuration)
+	startIndex = time.Now()
 	sqlQueryStr := "client_proc_desc = 'zith' AND work_item_id >= 30 AND work_item_id <= 50"
 	sqlQuery := &SQLQuery{SQL: sqlQueryStr}
 	fmt.Println("\nSQL Query:", sqlQueryStr)
@@ -979,4 +1003,6 @@ func main() {
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
 	}
+	indexDuration = time.Since(startIndex)
+	fmt.Printf("SQLQuery took: %s\n", indexDuration)
 }

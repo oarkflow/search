@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/armon/go-radix"
 	"github.com/oarkflow/msgpack"
 
 	"github.com/oarkflow/search/lib"
@@ -21,6 +22,7 @@ import (
 
 const fuzzyThreshold = 1
 
+// Analyzer and EnhancedAnalyzer tokenize text.
 type Analyzer interface {
 	Analyze(text string) []string
 }
@@ -60,6 +62,7 @@ func (a *EnhancedAnalyzer) Analyze(text string) []string {
 	return tokens
 }
 
+// FieldMapping and Mapping describe how a document field is processed.
 type FieldMapping struct {
 	FieldName string
 	Analyzer  Analyzer
@@ -71,32 +74,73 @@ type Mapping struct {
 	Fields map[string]FieldMapping
 }
 
+// Document is a map of field names to their values.
 type Document map[string]interface{}
 
+// PostingList is a mapping from docID to slice of positions.
+type PostingList map[int64][]int
+
+// NumericRecord holds a numeric value for a document.
+type NumericRecord struct {
+	DocID int64
+	Value float64
+}
+
+// Index holds the documents, inverted indexes, and numeric indexes.
+// The invertedIndex is now a map from field name to a radix tree.
+// In each tree the key is the token string and the value is a PostingList.
 type Index struct {
-	invertedIndex    map[string]map[string]map[int64][]int
+	invertedIndex    map[string]*radix.Tree
 	docs             map[int64]Document
 	mapping          Mapping
 	fieldLengths     map[string]map[int64]int
 	avgFieldLength   map[string]float64
 	tokenOccurrences map[string]map[string]int
-	mu               sync.RWMutex
+
+	// numericIndex maps a field name to a sorted slice of numeric records.
+	numericIndex map[string][]NumericRecord
+
+	mu sync.RWMutex
 }
 
 func NewIndex(mapping Mapping) *Index {
 	return &Index{
-		invertedIndex:    make(map[string]map[string]map[int64][]int),
+		invertedIndex:    make(map[string]*radix.Tree),
 		docs:             make(map[int64]Document),
 		mapping:          mapping,
 		fieldLengths:     make(map[string]map[int64]int),
 		avgFieldLength:   make(map[string]float64),
 		tokenOccurrences: make(map[string]map[string]int),
+		numericIndex:     make(map[string][]NumericRecord),
 	}
 }
 
+// toFloat64 converts a field value to float64 if possible.
+func toFloat64(val interface{}) (float64, bool) {
+	switch v := val.(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case string:
+		n, err := strconv.ParseFloat(v, 64)
+		if err == nil {
+			return n, true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}
+
+// Insert tokenizes and indexes a document.
+// For each indexed field, it stores tokens into a radix tree.
 func (idx *Index) Insert(doc Document, id int64) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
+
 	idx.docs[id] = doc
 	for field, fieldMapping := range idx.mapping.Fields {
 		if !fieldMapping.Index {
@@ -108,8 +152,12 @@ func (idx *Index) Insert(doc Document, id int64) error {
 		}
 		text := fmt.Sprintf("%v", val)
 		tokens := fieldMapping.Analyzer.Analyze(text)
-		if _, ok := idx.invertedIndex[field]; !ok {
-			idx.invertedIndex[field] = make(map[string]map[int64][]int)
+
+		// Ensure radix tree exists for this field.
+		rt, ok := idx.invertedIndex[field]
+		if !ok {
+			rt = radix.New()
+			idx.invertedIndex[field] = rt
 		}
 		if _, ok := idx.fieldLengths[field]; !ok {
 			idx.fieldLengths[field] = make(map[int64]int)
@@ -120,10 +168,15 @@ func (idx *Index) Insert(doc Document, id int64) error {
 		seenTokens := make(map[string]bool)
 		for pos, token := range tokens {
 			token = strings.ToLower(token)
-			if _, ok := idx.invertedIndex[field][token]; !ok {
-				idx.invertedIndex[field][token] = make(map[int64][]int)
+			var posting PostingList
+			if v, found := rt.Get(token); found {
+				posting = v.(PostingList)
+			} else {
+				posting = make(PostingList)
 			}
-			idx.invertedIndex[field][token][id] = append(idx.invertedIndex[field][token][id], pos)
+			posting[id] = append(posting[id], pos)
+			rt.Insert(token, posting)
+
 			if !seenTokens[token] {
 				seenTokens[token] = true
 				idx.tokenOccurrences[field][token]++
@@ -138,45 +191,71 @@ func (idx *Index) Insert(doc Document, id int64) error {
 			oldAvg := idx.avgFieldLength[field]
 			idx.avgFieldLength[field] = (oldAvg*(n-1) + float64(docLength)) / n
 		}
+		// Update numeric index if value is numeric.
+		if num, ok := toFloat64(val); ok {
+			record := NumericRecord{DocID: id, Value: num}
+			slice := idx.numericIndex[field]
+			i := sort.Search(len(slice), func(i int) bool {
+				return slice[i].Value >= record.Value
+			})
+			slice = append(slice, NumericRecord{})
+			copy(slice[i+1:], slice[i:])
+			slice[i] = record
+			idx.numericIndex[field] = slice
+		}
 	}
 	return nil
 }
 
+// Search performs a full text search using BM25 scoring.
 func (idx *Index) Search(query string, bm25Params lib.BM25Params) ([]SearchResult, error) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 	scoreMap := make(map[int64]float64)
 	totalDocs := len(idx.docs)
+	// For each field that is indexed:
 	for field, fieldMapping := range idx.mapping.Fields {
 		if !fieldMapping.Index {
 			continue
 		}
 		queryTokens := fieldMapping.Analyzer.Analyze(query)
+		rt := idx.invertedIndex[field]
+		if rt == nil {
+			continue
+		}
 		for _, qToken := range queryTokens {
 			qToken = strings.ToLower(qToken)
-			posting, exists := idx.invertedIndex[field][qToken]
-			if !exists {
-				for token, candidatePosting := range idx.invertedIndex[field] {
-					if dist, ok := lib.BoundedLevenshtein([]rune(qToken), []rune(token), fuzzyThreshold); ok && dist <= fuzzyThreshold {
+			var posting PostingList
+			if v, found := rt.Get(qToken); found {
+				posting = v.(PostingList)
+			} else {
+				// Fuzzy matching: walk all keys in the radix tree.
+				rt.Walk(func(key string, value interface{}) bool {
+					if dist, ok := lib.BoundedLevenshtein([]rune(qToken), []rune(key), fuzzyThreshold); ok && dist <= fuzzyThreshold {
+						candidate := value.(PostingList)
 						if posting == nil {
-							posting = make(map[int64][]int)
+							posting = make(PostingList)
 						}
-						for docID, posList := range candidatePosting {
+						for docID, posList := range candidate {
 							posting[docID] = append(posting[docID], posList...)
 						}
 					}
-				}
+					return false
+				})
+				// Fallback: check substring match if fuzzy failed.
 				if posting == nil {
-					for token, candidatePosting := range idx.invertedIndex[field] {
-						if strings.Contains(token, qToken) || strings.Contains(qToken, token) {
+					rt.Walk(func(key string, value interface{}) bool {
+						if strings.Contains(key, qToken) || strings.Contains(qToken, key) {
+							candidate := value.(PostingList)
 							if posting == nil {
-								posting = make(map[int64][]int)
+								posting = make(PostingList)
 							}
-							for docID, posList := range candidatePosting {
+							for docID, posList := range candidate {
 								posting[docID] = append(posting[docID], posList...)
 							}
 						}
-					}
+						return false
+					})
 				}
 			}
 			if posting != nil {
@@ -206,19 +285,16 @@ func (idx *Index) Search(query string, bm25Params lib.BM25Params) ([]SearchResul
 	return results, nil
 }
 
+// Save and Load persist the index.
 func (idx *Index) Save(prefix, id string) error {
 	filePath := filename(prefix, id)
 	file, err := os.Create(filePath)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_ = file.Close()
-	}()
+	defer file.Close()
 	writer := bufio.NewWriter(file)
-	defer func() {
-		_ = writer.Flush()
-	}()
+	defer writer.Flush()
 	encoder := msgpack.NewEncoder(writer)
 	return encoder.Encode(idx)
 }
@@ -229,9 +305,7 @@ func (idx *Index) Load(prefix, id string) error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_ = file.Close()
-	}()
+	defer file.Close()
 	reader := bufio.NewReader(file)
 	decoder := msgpack.NewDecoder(reader)
 	return decoder.Decode(idx)
@@ -248,6 +322,8 @@ func filename(prefix, id string) string {
 	return filepath.Join(dir, id+extension)
 }
 
+// Query types and their implementations.
+
 type SearchResult struct {
 	DocID    int64
 	Score    float64
@@ -258,6 +334,7 @@ type Query interface {
 	Execute(e *Engine) (map[int64]float64, error)
 }
 
+// TermQuery for text term searches.
 type TermQuery struct {
 	Field string
 	Term  string
@@ -277,35 +354,45 @@ func (tq *TermQuery) Execute(e *Engine) (map[int64]float64, error) {
 		}
 	}
 	for _, field := range fieldsToSearch {
+		rt := e.index.invertedIndex[field]
+		if rt == nil {
+			continue
+		}
 		fm := e.index.mapping.Fields[field]
 		analyzed := fm.Analyzer.Analyze(tq.Term)
 		if len(analyzed) == 0 {
 			continue
 		}
 		term := analyzed[0]
-		posting, exists := e.index.invertedIndex[field][term]
-		if !exists && tq.Fuzzy {
-			for token, candidatePosting := range e.index.invertedIndex[field] {
-				if dist, ok := lib.BoundedLevenshtein([]rune(term), []rune(token), fuzzyThreshold); ok && dist <= fuzzyThreshold {
+		var posting PostingList
+		if v, found := rt.Get(term); found {
+			posting = v.(PostingList)
+		} else if tq.Fuzzy {
+			rt.Walk(func(key string, value interface{}) bool {
+				if dist, ok := lib.BoundedLevenshtein([]rune(term), []rune(key), fuzzyThreshold); ok && dist <= fuzzyThreshold {
+					candidate := value.(PostingList)
 					if posting == nil {
-						posting = make(map[int64][]int)
+						posting = make(PostingList)
 					}
-					for docID, posList := range candidatePosting {
+					for docID, posList := range candidate {
 						posting[docID] = append(posting[docID], posList...)
 					}
 				}
-			}
+				return false
+			})
 			if posting == nil {
-				for token, candidatePosting := range e.index.invertedIndex[field] {
-					if strings.Contains(token, term) || strings.Contains(term, token) {
+				rt.Walk(func(key string, value interface{}) bool {
+					if strings.Contains(key, term) || strings.Contains(term, key) {
+						candidate := value.(PostingList)
 						if posting == nil {
-							posting = make(map[int64][]int)
+							posting = make(PostingList)
 						}
-						for docID, posList := range candidatePosting {
+						for docID, posList := range candidate {
 							posting[docID] = append(posting[docID], posList...)
 						}
 					}
-				}
+					return false
+				})
 			}
 		}
 		if posting != nil {
@@ -317,6 +404,7 @@ func (tq *TermQuery) Execute(e *Engine) (map[int64]float64, error) {
 	return result, nil
 }
 
+// RangeQuery uses the numeric index for filtering.
 type RangeQuery struct {
 	Field     string
 	Lower     float64
@@ -326,26 +414,42 @@ type RangeQuery struct {
 
 func (rq *RangeQuery) Execute(e *Engine) (map[int64]float64, error) {
 	result := make(map[int64]float64)
+	e.index.mu.RLock()
+	slice, exists := e.index.numericIndex[rq.Field]
+	e.index.mu.RUnlock()
+	if exists {
+		var lowerBound, upperBound int
+		if rq.Inclusive {
+			lowerBound = sort.Search(len(slice), func(i int) bool {
+				return slice[i].Value >= rq.Lower
+			})
+			upperBound = sort.Search(len(slice), func(i int) bool {
+				return slice[i].Value > rq.Upper
+			})
+		} else {
+			lowerBound = sort.Search(len(slice), func(i int) bool {
+				return slice[i].Value > rq.Lower
+			})
+			upperBound = sort.Search(len(slice), func(i int) bool {
+				return slice[i].Value >= rq.Upper
+			})
+		}
+		for i := lowerBound; i < upperBound; i++ {
+			record := slice[i]
+			result[record.DocID] = 1
+		}
+		return result, nil
+	}
+	// Fallback: iterate over documents.
+	e.index.mu.RLock()
+	defer e.index.mu.RUnlock()
 	for docID, doc := range e.index.docs {
 		val, ok := doc[rq.Field]
 		if !ok {
 			continue
 		}
-		var num float64
-		switch v := val.(type) {
-		case float64:
-			num = v
-		case int:
-			num = float64(v)
-		case int64:
-			num = float64(v)
-		case string:
-			n, err := strconv.ParseFloat(v, 64)
-			if err != nil {
-				continue
-			}
-			num = n
-		default:
+		num, ok := toFloat64(val)
+		if !ok {
 			continue
 		}
 		if rq.Inclusive {
@@ -361,6 +465,7 @@ func (rq *RangeQuery) Execute(e *Engine) (map[int64]float64, error) {
 	return result, nil
 }
 
+// BoolQuery combines multiple subqueries.
 type BoolOperator int
 
 const (
@@ -426,6 +531,7 @@ func (bq *BoolQuery) Execute(e *Engine) (map[int64]float64, error) {
 	}
 }
 
+// MatchAllQuery returns all documents.
 type MatchAllQuery struct{}
 
 func (q *MatchAllQuery) Execute(e *Engine) (map[int64]float64, error) {
@@ -436,6 +542,7 @@ func (q *MatchAllQuery) Execute(e *Engine) (map[int64]float64, error) {
 	return result, nil
 }
 
+// PrefixQuery uses the radix tree’s WalkPrefix for efficient lookups.
 type PrefixQuery struct {
 	Field  string
 	Prefix string
@@ -455,17 +562,22 @@ func (pq *PrefixQuery) Execute(e *Engine) (map[int64]float64, error) {
 	}
 	prefix := strings.ToLower(pq.Prefix)
 	for _, field := range fieldsToSearch {
-		for token, posting := range e.index.invertedIndex[field] {
-			if strings.HasPrefix(token, prefix) {
-				for docID, posList := range posting {
-					result[docID] += float64(len(posList))
-				}
-			}
+		rt := e.index.invertedIndex[field]
+		if rt == nil {
+			continue
 		}
+		rt.WalkPrefix(prefix, func(key string, value interface{}) bool {
+			posting := value.(PostingList)
+			for docID, posList := range posting {
+				result[docID] += float64(len(posList))
+			}
+			return false
+		})
 	}
 	return result, nil
 }
 
+// PhraseQuery finds documents where tokens appear in sequence.
 type PhraseQuery struct {
 	Field  string
 	Phrase string
@@ -482,34 +594,35 @@ func (pq *PhraseQuery) Execute(e *Engine) (map[int64]float64, error) {
 	if len(phraseTokens) == 0 {
 		return result, nil
 	}
-	firstToken := strings.ToLower(phraseTokens[0])
-	posting, exists := e.index.invertedIndex[field][firstToken]
-	if !exists {
+	rt := e.index.invertedIndex[field]
+	if rt == nil {
 		return result, nil
 	}
+	firstToken := strings.ToLower(phraseTokens[0])
+	v, found := rt.Get(firstToken)
+	if !found {
+		return result, nil
+	}
+	posting := v.(PostingList)
 	for docID, positions := range posting {
 		for _, pos := range positions {
 			match := true
 			for i := 1; i < len(phraseTokens); i++ {
 				token := strings.ToLower(phraseTokens[i])
-				nextPosting, exists := e.index.invertedIndex[field][token]
-				if !exists {
+				v2, found2 := rt.Get(token)
+				if !found2 {
 					match = false
 					break
 				}
-				posList, exists := nextPosting[docID]
-				if !exists {
-					match = false
-					break
-				}
-				found := false
+				posList := v2.(PostingList)[docID]
+				foundPos := false
 				for _, p := range posList {
 					if p == pos+i {
-						found = true
+						foundPos = true
 						break
 					}
 				}
-				if !found {
+				if !foundPos {
 					match = false
 					break
 				}
@@ -523,6 +636,7 @@ func (pq *PhraseQuery) Execute(e *Engine) (map[int64]float64, error) {
 	return result, nil
 }
 
+// BoostQuery applies a boost factor.
 type BoostQuery struct {
 	Query Query
 	Boost float64
@@ -539,6 +653,7 @@ func (bq *BoostQuery) Execute(e *Engine) (map[int64]float64, error) {
 	return res, nil
 }
 
+// SQLQuery parses a simple SQL-like string into subqueries.
 type SQLQuery struct {
 	SQL string
 }
@@ -645,6 +760,7 @@ func parseCondition(tokens []string) (Query, error) {
 	}
 }
 
+// Engine ties the index and BM25 parameters.
 type Engine struct {
 	index      *Index
 	bm25Params lib.BM25Params
@@ -737,13 +853,20 @@ func (e *Engine) Delete(docID int64) error {
 		}
 		text := fmt.Sprintf("%v", val)
 		tokens := fm.Analyzer.Analyze(text)
+		rt := e.index.invertedIndex[field]
+		if rt == nil {
+			continue
+		}
 		seenTokens := make(map[string]bool)
 		for _, token := range tokens {
 			token = strings.ToLower(token)
-			if posting, ok := e.index.invertedIndex[field][token]; ok {
+			if v, found := rt.Get(token); found {
+				posting := v.(PostingList)
 				delete(posting, docID)
 				if len(posting) == 0 {
-					delete(e.index.invertedIndex[field], token)
+					rt.Delete(token)
+				} else {
+					rt.Insert(token, posting)
 				}
 			}
 			if !seenTokens[token] {
@@ -769,6 +892,16 @@ func (e *Engine) Delete(docID int64) error {
 		} else {
 			e.index.avgFieldLength[field] = 0
 		}
+		// Remove from numeric index.
+		if _, ok := toFloat64(val); ok {
+			records := e.index.numericIndex[field]
+			for i, record := range records {
+				if record.DocID == docID {
+					e.index.numericIndex[field] = append(records[:i], records[i+1:]...)
+					break
+				}
+			}
+		}
 	}
 	delete(e.index.docs, docID)
 	return nil
@@ -792,8 +925,10 @@ func (e *Engine) Update(docID int64, doc Document) error {
 		}
 		text := fmt.Sprintf("%v", val)
 		tokens := fm.Analyzer.Analyze(text)
-		if _, ok := e.index.invertedIndex[field]; !ok {
-			e.index.invertedIndex[field] = make(map[string]map[int64][]int)
+		rt, ok := e.index.invertedIndex[field]
+		if !ok {
+			rt = radix.New()
+			e.index.invertedIndex[field] = rt
 		}
 		if _, ok := e.index.fieldLengths[field]; !ok {
 			e.index.fieldLengths[field] = make(map[int64]int)
@@ -804,10 +939,14 @@ func (e *Engine) Update(docID int64, doc Document) error {
 		seenTokens := make(map[string]bool)
 		for pos, token := range tokens {
 			token = strings.ToLower(token)
-			if _, ok := e.index.invertedIndex[field][token]; !ok {
-				e.index.invertedIndex[field][token] = make(map[int64][]int)
+			var posting PostingList
+			if v, found := rt.Get(token); found {
+				posting = v.(PostingList)
+			} else {
+				posting = make(PostingList)
 			}
-			e.index.invertedIndex[field][token][docID] = append(e.index.invertedIndex[field][token][docID], pos)
+			posting[docID] = append(posting[docID], pos)
+			rt.Insert(token, posting)
 			if !seenTokens[token] {
 				seenTokens[token] = true
 				e.index.tokenOccurrences[field][token]++
@@ -825,12 +964,24 @@ func (e *Engine) Update(docID int64, doc Document) error {
 		} else {
 			e.index.avgFieldLength[field] = 0
 		}
+		// Update numeric index.
+		if num, ok := toFloat64(val); ok {
+			record := NumericRecord{DocID: docID, Value: num}
+			slice := e.index.numericIndex[field]
+			i := sort.Search(len(slice), func(i int) bool {
+				return slice[i].Value >= record.Value
+			})
+			slice = append(slice, NumericRecord{})
+			copy(slice[i+1:], slice[i:])
+			slice[i] = record
+			e.index.numericIndex[field] = slice
+		}
 	}
 	return nil
 }
 
 func main() {
-	// Use a helper from lib to read JSON as []Document.
+	// Read documents using a helper from lib.
 	docs := lib.ReadFileAsMap("charge_master.json")
 	analyzer := NewEnhancedAnalyzer(true, true)
 	mapping := Mapping{
@@ -859,6 +1010,12 @@ func main() {
 				Index:     true,
 				Store:     true,
 			},
+			"work_item_id": {
+				FieldName: "work_item_id",
+				Analyzer:  analyzer,
+				Index:     true,
+				Store:     true,
+			},
 		},
 	}
 	bm25Params := lib.BM25Params{
@@ -869,7 +1026,7 @@ func main() {
 	beforeMem := lib.Stats()
 	startIndex := time.Now()
 
-	// Concurrently insert documents.
+	// Insert documents concurrently.
 	var wg sync.WaitGroup
 	for _, doc := range docs {
 		wg.Add(1)
@@ -888,6 +1045,7 @@ func main() {
 	fmt.Printf("Memory Usage: Before: %dMB, After: %dMB, Delta: %dMB\n", beforeMem, afterMem, afterMem-beforeMem)
 
 	// Example queries:
+
 	fmt.Println("\nFull Text Search Query: 'zith' (Page 1, PageSize 5)")
 	results, err := engine.SearchWithPagination("zith", 1, 5)
 	if err != nil {
@@ -895,6 +1053,7 @@ func main() {
 	} else {
 		fmt.Printf("Found %d results on page 1\n", len(results))
 	}
+
 	startIndex = time.Now()
 	termQuery := &TermQuery{
 		Field: "client_proc_desc",
@@ -910,6 +1069,7 @@ func main() {
 	}
 	indexDuration = time.Since(startIndex)
 	fmt.Printf("TermQuery took: %s\n", indexDuration)
+
 	startIndex = time.Now()
 	rangeQuery := &RangeQuery{
 		Field:     "work_item_id",
@@ -926,6 +1086,7 @@ func main() {
 	}
 	indexDuration = time.Since(startIndex)
 	fmt.Printf("Range took: %s\n", indexDuration)
+
 	startIndex = time.Now()
 	boolQuery := &BoolQuery{
 		Operator: BoolMust,
@@ -943,6 +1104,7 @@ func main() {
 	}
 	indexDuration = time.Since(startIndex)
 	fmt.Printf("BoolQuery took: %s\n", indexDuration)
+
 	startIndex = time.Now()
 	matchAll := &MatchAllQuery{}
 	fmt.Println("\nMatch All Query")
@@ -952,6 +1114,8 @@ func main() {
 	} else {
 		fmt.Printf("Found %d results\n", len(results))
 	}
+
+	startIndex = time.Now()
 	prefixQuery := &PrefixQuery{
 		Field:  "client_proc_desc",
 		Prefix: "zith",
@@ -965,6 +1129,7 @@ func main() {
 	}
 	indexDuration = time.Since(startIndex)
 	fmt.Printf("PrefixQuery took: %s\n", indexDuration)
+
 	startIndex = time.Now()
 	phraseQuery := &PhraseQuery{
 		Field:  "client_proc_desc",
@@ -979,6 +1144,7 @@ func main() {
 	}
 	indexDuration = time.Since(startIndex)
 	fmt.Printf("PhraseQuery took: %s\n", indexDuration)
+
 	startIndex = time.Now()
 	boostQuery := &BoostQuery{
 		Query: termQuery,
@@ -993,6 +1159,7 @@ func main() {
 	}
 	indexDuration = time.Since(startIndex)
 	fmt.Printf("BoostQuery took: %s\n", indexDuration)
+
 	startIndex = time.Now()
 	sqlQueryStr := "client_proc_desc = 'zith' AND work_item_id >= 30 AND work_item_id <= 50"
 	sqlQuery := &SQLQuery{SQL: sqlQueryStr}

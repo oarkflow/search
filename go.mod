@@ -3,6 +3,8 @@ module github.com/oarkflow/search
 go 1.23
 
 require (
+	github.com/armon/go-radix v1.0.0
+	github.com/goccy/go-json v0.10.5
 	github.com/oarkflow/date v0.0.4
 	github.com/oarkflow/filters v0.0.35
 	github.com/oarkflow/flydb v0.0.1

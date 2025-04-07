@@ -1,6 +1,6 @@
 module github.com/oarkflow/search
 
-go 1.23
+go 1.24.2
 
 require (
 	github.com/armon/go-radix v1.0.0
@@ -10,7 +10,7 @@ require (
 	github.com/oarkflow/flydb v0.0.1
 	github.com/oarkflow/frame v0.0.68
 	github.com/oarkflow/gopool v0.0.2
-	github.com/oarkflow/log v1.0.79
+	github.com/oarkflow/log v1.0.82
 	github.com/oarkflow/metadata v0.0.64
 	github.com/oarkflow/msgpack v0.0.1
 	github.com/oarkflow/squealx v0.0.30

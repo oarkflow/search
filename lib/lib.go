@@ -16,6 +16,20 @@ func ToTitleCase(s string) string {
 	return strings.Join(words, " ")
 }
 
+type BM25Params struct {
+	K float64
+	B float64
+}
+
+func BM25V2(frequency float64, docLength int, avgDocLength float64, totalDocs int, docFreq int, params BM25Params) float64 {
+	idf := 0.0
+	if docFreq > 0 {
+		idf = math.Log((float64(totalDocs)-float64(docFreq)+0.5)/(float64(docFreq)+0.5) + 1)
+	}
+	tf := (frequency * (params.K + 1)) / (frequency + params.K*(1.0-params.B+params.B*(float64(docLength)/avgDocLength)))
+	return idf * tf
+}
+
 func BM25(tf float64, matchingDocsCount int, fieldLength int, avgFieldLength float64, docsCount int, k float64, b float64, d float64) float64 {
 	idf := math.Log(1 + (float64(docsCount-matchingDocsCount)+0.5)/(float64(matchingDocsCount)+0.5))
 	return idf * (d + tf*(k+1)) / (tf + k*(1-b+(b*float64(fieldLength))/avgFieldLength))

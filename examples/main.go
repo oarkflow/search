@@ -13,8 +13,8 @@ func main() {
 	bt := []byte(`{"sort_field": "display_name"}`)
 	var params search.Params
 	json.Unmarshal(bt, &params)
-	icds := lib.ReadFileAsMap("cpt_codes.json")
-	db, _ := search.New[map[string]any](&search.Config{})
+	icds := lib.ReadFileAsMap("charge_master.json")
+	db, _ := search.New[map[string]any](&search.Config{Storage: "memory"})
 	var startTime = time.Now()
 	before := lib.Stats()
 	for _, icd := range icds {

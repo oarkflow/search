@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
@@ -32,6 +33,31 @@ func ReadFileAsMap(file string) (icds []map[string]any) {
 		return
 	}
 	return
+}
+
+type ProcessCallback[T any] func(record T) error
+
+func StreamJSONFile[T any](filePath string, callback ProcessCallback[T]) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %v", err)
+	}
+	defer file.Close()
+	reader := bufio.NewReader(file)
+	decoder := json.NewDecoder(reader)
+	for {
+		var record T
+		if err := decoder.Decode(&record); err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			return fmt.Errorf("failed to decode JSON: %v", err)
+		}
+		if err := callback(record); err != nil {
+			return fmt.Errorf("callback error: %v", err)
+		}
+	}
+	return nil
 }
 
 func Stats() uint64 {

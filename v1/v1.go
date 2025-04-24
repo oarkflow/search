@@ -1,3 +1,4 @@
+// Filename: search_index.go
 package v1
 
 import (
@@ -28,6 +29,12 @@ func (rec GenericRecord) String() string {
 		switch val := v.(type) {
 		case string:
 			parts = append(parts, val)
+		case json.Number:
+			if i, err := val.Int64(); err == nil {
+				parts = append(parts, strconv.FormatInt(i, 10))
+			} else if f, err := val.Float64(); err == nil {
+				parts = append(parts, strconv.FormatFloat(f, 'f', -1, 64))
+			}
 		case float64:
 			parts = append(parts, strconv.FormatFloat(val, 'f', -1, 64))
 		case int:
@@ -40,7 +47,7 @@ func (rec GenericRecord) String() string {
 func (rec GenericRecord) getFrequency() map[string]int {
 	combined := rec.String()
 	tokens := utils.Tokenize(combined)
-	freq := make(map[string]int)
+	freq := make(map[string]int, len(tokens))
 	for _, t := range tokens {
 		freq[t]++
 	}
@@ -68,12 +75,14 @@ type ScoredDoc struct {
 }
 
 type InvertedIndex struct {
-	ID           string
-	Index        map[string][]Posting
-	DocLengths   map[int]int
-	Documents    map[int]GenericRecord
-	TotalDocs    int
-	AvgDocLength float64
+	sync.RWMutex
+	ID                 string
+	Index              map[string][]Posting
+	DocLengths         map[int]int
+	Documents          map[int]GenericRecord
+	TotalDocs          int
+	AvgDocLength       float64
+	indexingInProgress bool
 }
 
 func NewIndex() *InvertedIndex {
@@ -86,6 +95,8 @@ func NewIndex() *InvertedIndex {
 }
 
 func (index *InvertedIndex) FuzzySearch(term string, threshold int) []string {
+	index.RLock()
+	defer index.RUnlock()
 	var results []string
 	for token := range index.Index {
 		if utils.BoundedLevenshtein(term, token, threshold) <= threshold {
@@ -95,51 +106,38 @@ func (index *InvertedIndex) FuzzySearch(term string, threshold int) []string {
 	return results
 }
 
-func (index *InvertedIndex) BuildFromFile(path string, callback ...func(v GenericRecord) error) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = f.Close()
-	}()
-	return index.BuildFromReader(f, callback...)
-}
-
-func (index *InvertedIndex) BuildFromBytes(data []byte, callback ...func(v GenericRecord) error) error {
-	return index.BuildFromReader(bytes.NewReader(data), callback...)
-}
-
-func (index *InvertedIndex) BuildFromString(jsonStr string, callback ...func(v GenericRecord) error) error {
-	return index.BuildFromReader(strings.NewReader(jsonStr), callback...)
-}
-
 func (index *InvertedIndex) BuildFromReader(r io.Reader, callback ...func(v GenericRecord) error) error {
+	index.Lock()
+	index.indexingInProgress = true
+	index.Unlock()
+	defer func() {
+		index.Lock()
+		index.indexingInProgress = false
+		index.Unlock()
+	}()
 	decoder := json.NewDecoder(r)
+	decoder.UseNumber()
 	token, err := decoder.Token()
-	if err != nil {
-		return fmt.Errorf("read opening token: %v", err)
-	}
-	if delim, ok := token.(json.Delim); !ok || delim != '[' {
-		return fmt.Errorf("expected '[' at beginning of JSON array, got: %v", token)
+	if err != nil || token != json.Delim('[') {
+		return fmt.Errorf("invalid JSON array")
 	}
 	jobs := make(chan job, 100)
 	results := make(chan result, 100)
-	workerCount := runtime.NumCPU()
-	var workerWg sync.WaitGroup
-	worker := func() {
-		defer workerWg.Done()
-		for j := range jobs {
-			freq := j.rec.getFrequency()
-			results <- result{id: j.id, rec: j.rec, freq: freq}
-		}
+	var wg sync.WaitGroup
+
+	for i := 0; i < runtime.NumCPU(); i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				freq := j.rec.getFrequency()
+				results <- result{id: j.id, rec: j.rec, freq: freq}
+			}
+		}()
 	}
-	for i := 0; i < workerCount; i++ {
-		workerWg.Add(1)
-		go worker()
-	}
-	docID := 0
+
 	go func() {
+		docID := 0
 		for decoder.More() {
 			var rec GenericRecord
 			if err := decoder.Decode(&rec); err != nil {
@@ -148,60 +146,100 @@ func (index *InvertedIndex) BuildFromReader(r io.Reader, callback ...func(v Gene
 			}
 			docID++
 			jobs <- job{id: docID, rec: rec}
-			index.TotalDocs++
 		}
 		close(jobs)
-		_, err := decoder.Token()
-		if err != nil {
-			log.Printf("read closing token: %v", err)
-		}
 	}()
-	done := make(chan struct{})
+
 	go func() {
-		for r := range results {
-			index.indexDoc(job{id: r.id, rec: r.rec}, r.freq)
-			if len(callback) > 0 {
-				if err := callback[0](r.rec); err != nil {
-					log.Printf("callback error: %v", err)
-				}
+		wg.Wait()
+		close(results)
+	}()
+
+	for r := range results {
+		index.Lock()
+		index.indexDoc(job{id: r.id, rec: r.rec}, r.freq)
+		index.TotalDocs++
+		index.Unlock()
+
+		if len(callback) > 0 {
+			if err := callback[0](r.rec); err != nil {
+				log.Printf("callback error: %v", err)
 			}
 		}
-		done <- struct{}{}
-	}()
-	workerWg.Wait()
-	close(results)
-	<-done
+	}
 	index.update()
 	return nil
 }
 
+func (index *InvertedIndex) Build(input any, callback ...func(v GenericRecord) error) error {
+	switch v := input.(type) {
+	case string:
+		if strings.HasPrefix(strings.TrimSpace(v), "[") {
+			return index.BuildFromReader(strings.NewReader(v), callback...)
+		}
+		return index.BuildFromFile(v, callback...)
+	case []byte:
+		return index.BuildFromReader(bytes.NewReader(v), callback...)
+	case io.Reader:
+		return index.BuildFromReader(v, callback...)
+	case []GenericRecord:
+		return index.BuildFromRecords(v, callback...)
+	default:
+		rv := reflect.ValueOf(v)
+		if rv.Kind() == reflect.Slice {
+			return index.BuildFromStruct(v, callback...)
+		}
+	}
+	return fmt.Errorf("unsupported input type: %T", input)
+}
+
+func (index *InvertedIndex) BuildFromFile(path string, callback ...func(v GenericRecord) error) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return index.BuildFromReader(file, callback...)
+}
+
 func (index *InvertedIndex) BuildFromRecords(records []GenericRecord, callback ...func(v GenericRecord) error) error {
-	var mu sync.Mutex
+	index.Lock()
+	index.indexingInProgress = true
+	index.Unlock()
+
+	defer func() {
+		index.Lock()
+		index.indexingInProgress = false
+		index.Unlock()
+	}()
+
 	var wg sync.WaitGroup
-	jobs := make(chan job, len(records))
-	workerCount := runtime.NumCPU()
-	for i := 0; i < workerCount; i++ {
+	ch := make(chan job, len(records))
+
+	for i := 0; i < runtime.NumCPU(); i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for job := range jobs {
+			for job := range ch {
 				freq := job.rec.getFrequency()
-				mu.Lock()
+				index.Lock()
 				index.indexDoc(job, freq)
 				index.TotalDocs++
+				index.Unlock()
+
 				if len(callback) > 0 {
 					if err := callback[0](job.rec); err != nil {
 						log.Printf("callback error: %v", err)
 					}
 				}
-				mu.Unlock()
 			}
 		}()
 	}
+
 	for i, rec := range records {
-		jobs <- job{i + 1, rec}
+		ch <- job{i + 1, rec}
 	}
-	close(jobs)
+	close(ch)
 	wg.Wait()
 	index.update()
 	return nil
@@ -210,52 +248,42 @@ func (index *InvertedIndex) BuildFromRecords(records []GenericRecord, callback .
 func (index *InvertedIndex) BuildFromStruct(slice any, callback ...func(v GenericRecord) error) error {
 	v := reflect.ValueOf(slice)
 	if v.Kind() != reflect.Slice {
-		return fmt.Errorf("BuildFromStructs needs a slice, got %T", slice)
+		return fmt.Errorf("not a slice")
 	}
-	records := make([]GenericRecord, v.Len())
+	var records []GenericRecord
 	for i := 0; i < v.Len(); i++ {
-		elem := v.Index(i).Interface()
-		b, err := json.Marshal(elem)
-		if err != nil {
-			return fmt.Errorf("marshal element %d: %w", i, err)
-		}
+		b, _ := json.Marshal(v.Index(i).Interface())
 		var rec GenericRecord
-		if err := json.Unmarshal(b, &rec); err != nil {
-			return fmt.Errorf("unmarshal element %d: %w", i, err)
-		}
-		records[i] = rec
+		_ = json.Unmarshal(b, &rec)
+		records = append(records, rec)
 	}
 	return index.BuildFromRecords(records, callback...)
 }
 
-func (index *InvertedIndex) Build(input any, callback ...func(v GenericRecord) error) error {
-	switch v := input.(type) {
-	case string:
-		trim := strings.TrimSpace(v)
-		if strings.HasPrefix(trim, "[") || strings.HasPrefix(trim, "{") {
-			return index.BuildFromString(v, callback...)
-		}
-		return index.BuildFromFile(v, callback...)
-	case []byte:
-		return index.BuildFromBytes(v, callback...)
-	case io.Reader:
-		return index.BuildFromReader(v, callback...)
-	case []GenericRecord:
-		return index.BuildFromRecords(v, callback...)
-	default:
-		rv := reflect.ValueOf(input)
-		if rv.Kind() == reflect.Slice {
-			elem := rv.Type().Elem()
-			if elem.Kind() == reflect.Struct ||
-				elem.Kind() == reflect.Map && elem.Key().Kind() == reflect.String && elem.Elem().Kind() == reflect.Interface {
-				return index.BuildFromStruct(input)
-			}
-		}
-		return fmt.Errorf("unsupported input type: %T", input)
+func (index *InvertedIndex) indexDoc(r job, freq map[string]int) {
+	index.Documents[r.id] = r.rec
+	docLen := 0
+	for t, count := range freq {
+		index.Index[t] = append(index.Index[t], Posting{DocID: r.id, Frequency: count})
+		docLen += count
+	}
+	index.DocLengths[r.id] = docLen
+}
+
+func (index *InvertedIndex) update() {
+	total := 0
+	for _, l := range index.DocLengths {
+		total += l
+	}
+	if index.TotalDocs > 0 {
+		index.AvgDocLength = float64(total) / float64(index.TotalDocs)
 	}
 }
 
 func (index *InvertedIndex) bm25Score(queryTokens []string, docID int, k1, b float64) float64 {
+	index.RLock()
+	defer index.RUnlock()
+
 	score := 0.0
 	docLength := float64(index.DocLengths[docID])
 	for _, term := range queryTokens {
@@ -264,7 +292,7 @@ func (index *InvertedIndex) bm25Score(queryTokens []string, docID int, k1, b flo
 			continue
 		}
 		df := float64(len(postings))
-		tf := 0
+		var tf int
 		for _, p := range postings {
 			if p.DocID == docID {
 				tf = p.Frequency
@@ -281,28 +309,6 @@ func (index *InvertedIndex) bm25Score(queryTokens []string, docID int, k1, b flo
 	return score
 }
 
-func (index *InvertedIndex) update() {
-	totalLength := 0
-	for _, l := range index.DocLengths {
-		totalLength += l
-	}
-	if index.TotalDocs > 0 {
-		index.AvgDocLength = float64(totalLength) / float64(index.TotalDocs)
-	}
-}
-
-func (index *InvertedIndex) indexDoc(r job, freq map[string]int) {
-	index.Documents[r.id] = r.rec
-	docLen := 0
-	for t, count := range freq {
-		docLen += count
-		postings := index.Index[t]
-		postings = append(postings, Posting{DocID: r.id, Frequency: count})
-		index.Index[t] = postings
-	}
-	index.DocLengths[r.id] = docLen
-}
-
 type BM25 struct {
 	K float64
 	B float64
@@ -311,17 +317,43 @@ type BM25 struct {
 var defaultBM25 = BM25{K: 1.2, B: 0.75}
 
 func (index *InvertedIndex) Search(q Query, queryText string, bm ...BM25) []ScoredDoc {
-	p := defaultBM25
+	index.RLock()
+	if index.indexingInProgress {
+		index.RUnlock()
+		return nil // Avoid searching during active index mutation
+	}
+	index.RUnlock()
+
+	params := defaultBM25
 	if len(bm) > 0 {
-		p = bm[0]
+		params = bm[0]
 	}
-	docIDs := q.Evaluate(index)
 	queryTokens := utils.Tokenize(queryText)
+	docIDs := q.Evaluate(index)
+
 	var scored []ScoredDoc
-	for _, docID := range docIDs {
-		score := index.bm25Score(queryTokens, docID, p.K, p.B)
-		scored = append(scored, ScoredDoc{DocID: docID, Score: score})
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	ch := make(chan int, len(docIDs))
+	for _, id := range docIDs {
+		ch <- id
 	}
+	close(ch)
+
+	for i := 0; i < runtime.NumCPU(); i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for docID := range ch {
+				score := index.bm25Score(queryTokens, docID, params.K, params.B)
+				mu.Lock()
+				scored = append(scored, ScoredDoc{DocID: docID, Score: score})
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
 	sort.Slice(scored, func(i, j int) bool {
 		return scored[i].Score > scored[j].Score
 	})
@@ -331,7 +363,7 @@ func (index *InvertedIndex) Search(q Query, queryText string, bm ...BM25) []Scor
 func Paginate(docs []ScoredDoc, page, perPage int) []ScoredDoc {
 	start := (page - 1) * perPage
 	if start >= len(docs) {
-		return []ScoredDoc{}
+		return nil
 	}
 	end := start + perPage
 	if end > len(docs) {

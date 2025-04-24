@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -52,6 +53,7 @@ func initialModel(jsonPath string) *model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	ti := textinput.New()
+	ti.Width = 100
 	ti.Placeholder = "Type to search (min 3 chars)..."
 	ti.Focus()
 	columns := []table.Column{
@@ -222,8 +224,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				rows = append(rows, row)
 			}
 			columns, r := mapToTable(rows)
-			m.table.SetColumns(columns)
-			m.table.SetRows(r)
+			if len(columns) > 0 {
+				m.table.SetColumns(columns)
+				m.table.SetRows(r)
+			}
 		} else {
 			m.results = nil
 			m.table.SetRows(nil)
@@ -232,13 +236,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		var cmd tea.Cmd
 		m.textInput, cmd = m.textInput.Update(msg)
-		q := m.textInput.Value()
-		if len(q) >= 3 && q != m.pendingQuery {
-			m.pendingQuery = q
+		q := strings.TrimSpace(m.textInput.Value())
+		if q != "" {
 			return m, debounceSearch(q)
-		}
-		if len(q) < 3 {
-			m.results = nil
+		} else {
 			m.table.SetRows(nil)
 		}
 		return m, cmd
@@ -259,7 +260,7 @@ func (m *model) View() string {
 	var pageInfo string
 	if len(m.results) > 0 {
 		totalPages := int(math.Ceil(float64(len(m.results)) / float64(m.pageSize)))
-		pageInfo = "Use Ctrl+ ->/Ctrl+ <- to navigate pages. Ctrl+C to quit."
+		pageInfo = "Use Ctrl + <ArrowRight>/Ctrl + <ArrowRight> to navigate pages. Ctrl+C to quit."
 		pageInfo += fmt.Sprintf(" (Page %d/%d)", m.currentPage+1, totalPages)
 	} else {
 		pageInfo = "Type at least 3 characters to search. Ctrl+C to quit."

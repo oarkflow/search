@@ -22,7 +22,7 @@ func main() {
 		Must: []v1.Query{termQ},
 	}
 	startTime = time.Now()
-	scoredDocs := v1.ScoreQuery(boolQ, index, "33965")
+	scoredDocs := index.Search(boolQ, "33965")
 	since := time.Since(startTime)
 	page := 1
 	perPage := 1
@@ -35,7 +35,7 @@ func main() {
 
 	termQ = v1.NewTermQuery("33964", true, 1)
 	startTime = time.Now()
-	scoredDocs = v1.ScoreQuery(boolQ, index, "33964")
+	scoredDocs = index.Search(boolQ, "33964")
 	since = time.Since(startTime)
 	paginatedResults = v1.Paginate(scoredDocs, page, perPage)
 	fmt.Printf("Found %d matching documents (showing page %d): Latency: %s\n", len(scoredDocs), page, since)

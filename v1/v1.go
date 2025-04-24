@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -125,7 +126,7 @@ func CombinedText(rec GenericRecord) string {
 	return strings.Join(parts, " ")
 }
 
-func BuildIndexFromFile(path string) (*InvertedIndex, error) {
+func BuildIndexFromFile(path string, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -133,15 +134,15 @@ func BuildIndexFromFile(path string) (*InvertedIndex, error) {
 	defer func() {
 		_ = f.Close()
 	}()
-	return BuildIndexFromReader(f)
+	return BuildIndexFromReader(f, callback...)
 }
 
-func BuildIndexFromBytes(data []byte) (*InvertedIndex, error) {
-	return BuildIndexFromReader(bytes.NewReader(data))
+func BuildIndexFromBytes(data []byte, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
+	return BuildIndexFromReader(bytes.NewReader(data), callback...)
 }
 
-func BuildIndexFromString(jsonStr string) (*InvertedIndex, error) {
-	return BuildIndexFromReader(strings.NewReader(jsonStr))
+func BuildIndexFromString(jsonStr string, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
+	return BuildIndexFromReader(strings.NewReader(jsonStr), callback...)
 }
 
 type job struct {
@@ -155,7 +156,7 @@ type result struct {
 }
 
 // BuildIndexFromReader reads a JSON array of objects from any io.Reader.
-func BuildIndexFromReader(r io.Reader) (*InvertedIndex, error) {
+func BuildIndexFromReader(r io.Reader, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
 	index := NewIndex()
 	decoder := json.NewDecoder(r)
 	token, err := decoder.Token()
@@ -202,6 +203,11 @@ func BuildIndexFromReader(r io.Reader) (*InvertedIndex, error) {
 	go func() {
 		for r := range results {
 			indexDoc(index, job{id: r.id, rec: r.rec}, r.freq)
+			if len(callback) > 0 {
+				if err := callback[0](r.rec); err != nil {
+					log.Printf("callback error: %v", err)
+				}
+			}
 		}
 		done <- struct{}{}
 	}()
@@ -245,7 +251,7 @@ func indexDoc(index *InvertedIndex, r job, freq map[string]int) {
 }
 
 // BuildIndexFromRecords builds directly from a slice of already‐decoded GenericRecord.
-func BuildIndexFromRecords(records []GenericRecord) (*InvertedIndex, error) {
+func BuildIndexFromRecords(records []GenericRecord, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
 	index := NewIndex()
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -260,6 +266,11 @@ func BuildIndexFromRecords(records []GenericRecord) (*InvertedIndex, error) {
 				mu.Lock()
 				indexDoc(index, job, freq)
 				index.TotalDocs++
+				if len(callback) > 0 {
+					if err := callback[0](job.rec); err != nil {
+						log.Printf("callback error: %v", err)
+					}
+				}
 				mu.Unlock()
 			}
 		}()
@@ -273,7 +284,7 @@ func BuildIndexFromRecords(records []GenericRecord) (*InvertedIndex, error) {
 	return index, nil
 }
 
-func BuildIndexFromStruct(slice any) (*InvertedIndex, error) {
+func BuildIndexFromStruct(slice any, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
 	v := reflect.ValueOf(slice)
 	if v.Kind() != reflect.Slice {
 		return nil, fmt.Errorf("BuildIndexFromStructs needs a slice, got %T", slice)
@@ -291,23 +302,23 @@ func BuildIndexFromStruct(slice any) (*InvertedIndex, error) {
 		}
 		records[i] = rec
 	}
-	return BuildIndexFromRecords(records)
+	return BuildIndexFromRecords(records, callback...)
 }
 
-func BuildIndex(input any) (*InvertedIndex, error) {
+func BuildIndex(input any, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
 	switch v := input.(type) {
 	case string:
 		trim := strings.TrimSpace(v)
 		if strings.HasPrefix(trim, "[") || strings.HasPrefix(trim, "{") {
-			return BuildIndexFromString(v)
+			return BuildIndexFromString(v, callback...)
 		}
-		return BuildIndexFromFile(v)
+		return BuildIndexFromFile(v, callback...)
 	case []byte:
-		return BuildIndexFromBytes(v)
+		return BuildIndexFromBytes(v, callback...)
 	case io.Reader:
-		return BuildIndexFromReader(v)
+		return BuildIndexFromReader(v, callback...)
 	case []GenericRecord:
-		return BuildIndexFromRecords(v)
+		return BuildIndexFromRecords(v, callback...)
 	default:
 		rv := reflect.ValueOf(input)
 		if rv.Kind() == reflect.Slice {
@@ -512,4 +523,29 @@ func Paginate(docs []ScoredDoc, page, perPage int) []ScoredDoc {
 		end = len(docs)
 	}
 	return docs[start:end]
+}
+
+func RowCount(filePath string) (int, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		log.Fatalf("Failed to open file: %v", err)
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+	reader := bufio.NewReader(file)
+	dec := json.NewDecoder(reader)
+	tok, err := dec.Token()
+	if err != nil || tok != json.Delim('[') {
+		return 0, fmt.Errorf("expected JSON array start")
+	}
+	count := 0
+	for dec.More() {
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return count, fmt.Errorf("decode error: %w", err)
+		}
+		count++
+	}
+	return count, nil
 }

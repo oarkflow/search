@@ -14,7 +14,7 @@ func main() {
 	var params search.Params
 	json.Unmarshal(bt, &params)
 	icds := lib.ReadFileAsMap("charge_master.json")
-	db, _ := search.New[map[string]any](&search.Config{Storage: "mmap"})
+	db, _ := search.New[map[string]any](&search.Config{Storage: "memory"})
 	var startTime = time.Now()
 	before := lib.Stats()
 	for _, icd := range icds {

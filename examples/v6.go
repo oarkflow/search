@@ -9,50 +9,38 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
 	"github.com/goccy/go-json"
 )
 
-// --------------------------
-// Generic Data Structures
-// --------------------------
-
-// GenericRecord represents any JSON object.
 type GenericRecord map[string]interface{}
 
-// Posting holds a document ID and the term frequency in that document.
 type Posting struct {
 	DocID     int
 	Frequency int
 }
 
-// InvertedIndex is our full‑text index.
 type InvertedIndex struct {
-	Index        map[string][]Posting  // token -> list of postings
-	DocLengths   map[int]int           // document length (in tokens)
-	Documents    map[int]GenericRecord // docID -> original record
+	Index        map[string][]Posting
+	DocLengths   map[int]int
+	Documents    map[int]GenericRecord
 	TotalDocs    int
 	AvgDocLength float64
 }
 
-// ScoredDoc represents a document and its BM25 score.
 type ScoredDoc struct {
 	DocID int
 	Score float64
 }
 
-// --------------------------
-// Tokenization & Helpers
-// --------------------------
-
-// Tokenize normalizes text (lowercase, remove punctuation) and splits into tokens.
 func Tokenize(text string) []string {
 	text = strings.ToLower(text)
 	var sb strings.Builder
 	for _, r := range text {
-		// Allow letters, digits, and spaces.
+
 		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsSpace(r) {
 			sb.WriteRune(r)
 		} else {
@@ -78,11 +66,6 @@ func abs(x int) int {
 	return x
 }
 
-// --------------------------
-// Bounded Levenshtein & Fuzzy Search
-// --------------------------
-
-// BoundedLevenshtein computes edit distance between a and b but stops if threshold is exceeded.
 func BoundedLevenshtein(a, b string, threshold int) int {
 	la, lb := len(a), len(b)
 	if abs(la-lb) > threshold {
@@ -121,7 +104,6 @@ func BoundedLevenshtein(a, b string, threshold int) int {
 	return prev[lb]
 }
 
-// FuzzySearch returns tokens in the index within the given threshold.
 func FuzzySearch(term string, threshold int, index *InvertedIndex) []string {
 	var results []string
 	for token := range index.Index {
@@ -132,11 +114,6 @@ func FuzzySearch(term string, threshold int, index *InvertedIndex) []string {
 	return results
 }
 
-// --------------------------
-// Building a Generic Inverted Index
-// --------------------------
-
-// CombinedText extracts a combined text string from all string and numeric values in a record.
 func CombinedText(rec GenericRecord) string {
 	var parts []string
 	for _, v := range rec {
@@ -152,24 +129,19 @@ func CombinedText(rec GenericRecord) string {
 	return strings.Join(parts, " ")
 }
 
-// BuildIndex streams through any JSON file (an array of objects) and builds the index.
 func BuildIndex(filePath string) (*InvertedIndex, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %v", err)
 	}
 	defer file.Close()
-
 	index := &InvertedIndex{
 		Index:      make(map[string][]Posting),
 		DocLengths: make(map[int]int),
 		Documents:  make(map[int]GenericRecord),
 	}
-
 	reader := bufio.NewReader(file)
 	decoder := json.NewDecoder(reader)
-
-	// Expect JSON array.
 	token, err := decoder.Token()
 	if err != nil {
 		return nil, fmt.Errorf("read opening token: %v", err)
@@ -177,42 +149,71 @@ func BuildIndex(filePath string) (*InvertedIndex, error) {
 	if delim, ok := token.(json.Delim); !ok || delim != '[' {
 		return nil, fmt.Errorf("expected '[' at beginning of JSON array, got: %v", token)
 	}
-
+	type job struct {
+		id  int
+		rec GenericRecord
+	}
+	type result struct {
+		id   int
+		rec  GenericRecord
+		freq map[string]int
+	}
+	jobs := make(chan job, 100)
+	results := make(chan result, 100)
+	workerCount := 4
+	var workerWg sync.WaitGroup
+	worker := func() {
+		defer workerWg.Done()
+		for j := range jobs {
+			combined := CombinedText(j.rec)
+			tokens := Tokenize(combined)
+			freq := make(map[string]int)
+			for _, t := range tokens {
+				freq[t]++
+			}
+			results <- result{id: j.id, rec: j.rec, freq: freq}
+		}
+	}
+	for i := 0; i < workerCount; i++ {
+		workerWg.Add(1)
+		go worker()
+	}
 	docID := 0
-	for decoder.More() {
-		var rec GenericRecord
-		if err := decoder.Decode(&rec); err != nil {
-			log.Printf("Skipping invalid record: %v", err)
-			continue
-		}
-		docID++
-		index.Documents[docID] = rec
-
-		combined := CombinedText(rec)
-		tokens := Tokenize(combined)
-		index.DocLengths[docID] = len(tokens)
-		for _, token := range tokens {
-			postings := index.Index[token]
-			found := false
-			for i, p := range postings {
-				if p.DocID == docID {
-					postings[i].Frequency++
-					found = true
-					break
-				}
+	go func() {
+		for decoder.More() {
+			var rec GenericRecord
+			if err := decoder.Decode(&rec); err != nil {
+				log.Printf("Skipping invalid record: %v", err)
+				continue
 			}
-			if !found {
-				postings = append(postings, Posting{DocID: docID, Frequency: 1})
-			}
-			index.Index[token] = postings
+			docID++
+			jobs <- job{id: docID, rec: rec}
+			index.TotalDocs++
 		}
-		index.TotalDocs++
-	}
-	// Consume closing ']' token.
-	_, err = decoder.Token()
-	if err != nil {
-		return nil, fmt.Errorf("read closing token: %v", err)
-	}
+		close(jobs)
+		_, err := decoder.Token()
+		if err != nil {
+			log.Printf("read closing token: %v", err)
+		}
+	}()
+	done := make(chan struct{})
+	go func() {
+		for r := range results {
+			index.Documents[r.id] = r.rec
+			docLen := 0
+			for t, count := range r.freq {
+				docLen += count
+				postings := index.Index[t]
+				postings = append(postings, Posting{DocID: r.id, Frequency: count})
+				index.Index[t] = postings
+			}
+			index.DocLengths[r.id] = docLen
+		}
+		done <- struct{}{}
+	}()
+	workerWg.Wait()
+	close(results)
+	<-done
 	totalLength := 0
 	for _, l := range index.DocLengths {
 		totalLength += l
@@ -223,11 +224,6 @@ func BuildIndex(filePath string) (*InvertedIndex, error) {
 	return index, nil
 }
 
-// --------------------------
-// BM25 Ranking
-// --------------------------
-
-// BM25Score computes the BM25 score for a document given a query.
 func BM25Score(queryTokens []string, docID int, index *InvertedIndex, k1, b float64) float64 {
 	score := 0.0
 	docLength := float64(index.DocLengths[docID])
@@ -254,16 +250,10 @@ func BM25Score(queryTokens []string, docID int, index *InvertedIndex, k1, b floa
 	return score
 }
 
-// --------------------------
-// Query Types & Evaluation
-// --------------------------
-
-// Query is the interface for our search queries.
 type Query interface {
-	Evaluate(index *InvertedIndex) []int // Returns matching document IDs.
+	Evaluate(index *InvertedIndex) []int
 }
 
-// TermQuery performs a term search with optional fuzzy matching.
 type TermQuery struct {
 	Term           string
 	Fuzzy          bool
@@ -292,7 +282,6 @@ func (tq TermQuery) Evaluate(index *InvertedIndex) []int {
 	return result
 }
 
-// PhraseQuery finds documents containing the given phrase (searched in combined text).
 type PhraseQuery struct {
 	Phrase string
 }
@@ -309,7 +298,6 @@ func (pq PhraseQuery) Evaluate(index *InvertedIndex) []int {
 	return result
 }
 
-// RangeQuery performs a numeric range search on a specified field.
 type RangeQuery struct {
 	Field string
 	Lower float64
@@ -345,7 +333,6 @@ func (rq RangeQuery) Evaluate(index *InvertedIndex) []int {
 	return result
 }
 
-// BoolQuery combines sub‑queries using must, should, and must_not clauses.
 type BoolQuery struct {
 	Must    []Query
 	Should  []Query
@@ -377,7 +364,6 @@ func (bq BoolQuery) Evaluate(index *InvertedIndex) []int {
 	return mustResult
 }
 
-// Helper functions for set operations.
 func intersect(a, b []int) []int {
 	m := make(map[int]bool)
 	for _, id := range a {
@@ -421,11 +407,6 @@ func subtract(a, b []int) []int {
 	return result
 }
 
-// --------------------------
-// Query Scoring & Pagination
-// --------------------------
-
-// ScoreQuery applies BM25 scoring to documents returned by a query.
 func ScoreQuery(q Query, index *InvertedIndex, queryText string, k1, b float64) []ScoredDoc {
 	docIDs := q.Evaluate(index)
 	queryTokens := Tokenize(queryText)
@@ -440,7 +421,6 @@ func ScoreQuery(q Query, index *InvertedIndex, queryText string, k1, b float64) 
 	return scored
 }
 
-// Paginate returns a page of results given the page number and page size.
 func Paginate(docs []ScoredDoc, page, perPage int) []ScoredDoc {
 	start := (page - 1) * perPage
 	if start >= len(docs) {
@@ -453,12 +433,8 @@ func Paginate(docs []ScoredDoc, page, perPage int) []ScoredDoc {
 	return docs[start:end]
 }
 
-// --------------------------
-// Main: Generic Indexing & Query Example
-// --------------------------
-
 func main() {
-	// Use any JSON file containing an array of objects.
+
 	jsonFilePath := "charge_master.json"
 	startTime := time.Now()
 	index, err := BuildIndex(jsonFilePath)
@@ -468,9 +444,9 @@ func main() {
 	fmt.Printf("Index built for %d documents in %s\n", index.TotalDocs, time.Since(startTime))
 
 	termQ := TermQuery{
-		Term:           "MANDI",
+		Term:           "33965",
 		Fuzzy:          true,
-		FuzzyThreshold: 1, // allow small typos
+		FuzzyThreshold: 1,
 	}
 	rangeQ := RangeQuery{
 		Field: "work_item_id",
@@ -479,11 +455,9 @@ func main() {
 	}
 	boolQ := BoolQuery{
 		Must: []Query{termQ, rangeQ},
-		// You can also add Should and MustNot queries here.
 	}
 
-	// Score using BM25 (with typical parameters k1=1.2, b=0.75) and paginate.
-	scoredDocs := ScoreQuery(boolQ, index, "MANDI", 1.2, 0.75)
+	scoredDocs := ScoreQuery(boolQ, index, "33965", 1.2, 0.75)
 	page := 1
 	perPage := 10
 	paginatedResults := Paginate(scoredDocs, page, perPage)

@@ -11,7 +11,8 @@ import (
 func main() {
 	jsonFilePath := "charge_master.json"
 	startTime := time.Now()
-	index, err := v1.BuildIndex(jsonFilePath)
+	index := v1.NewIndex()
+	err := index.Build(jsonFilePath)
 	if err != nil {
 		log.Fatalf("Error building index: %v", err)
 	}

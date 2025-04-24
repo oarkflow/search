@@ -17,6 +17,7 @@ import (
 
 	"github.com/goccy/go-reflect"
 	"github.com/oarkflow/json"
+	"github.com/oarkflow/xid"
 
 	"github.com/oarkflow/search/v1/utils"
 )
@@ -29,6 +30,7 @@ type Posting struct {
 }
 
 type InvertedIndex struct {
+	ID           string
 	Index        map[string][]Posting
 	DocLengths   map[int]int
 	Documents    map[int]GenericRecord
@@ -38,6 +40,7 @@ type InvertedIndex struct {
 
 func NewIndex() *InvertedIndex {
 	return &InvertedIndex{
+		ID:         xid.New().String(),
 		Index:      make(map[string][]Posting),
 		DocLengths: make(map[int]int),
 		Documents:  make(map[int]GenericRecord),
@@ -126,7 +129,7 @@ func CombinedText(rec GenericRecord) string {
 	return strings.Join(parts, " ")
 }
 
-func BuildIndexFromFile(path string, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
+func (index *InvertedIndex) BuildFromFile(path string, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -134,15 +137,15 @@ func BuildIndexFromFile(path string, callback ...func(v GenericRecord) error) (*
 	defer func() {
 		_ = f.Close()
 	}()
-	return BuildIndexFromReader(f, callback...)
+	return index.BuildFromReader(f, callback...)
 }
 
-func BuildIndexFromBytes(data []byte, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
-	return BuildIndexFromReader(bytes.NewReader(data), callback...)
+func (index *InvertedIndex) BuildFromBytes(data []byte, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
+	return index.BuildFromReader(bytes.NewReader(data), callback...)
 }
 
-func BuildIndexFromString(jsonStr string, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
-	return BuildIndexFromReader(strings.NewReader(jsonStr), callback...)
+func (index *InvertedIndex) BuildFromString(jsonStr string, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
+	return index.BuildFromReader(strings.NewReader(jsonStr), callback...)
 }
 
 type job struct {
@@ -155,9 +158,8 @@ type result struct {
 	freq map[string]int
 }
 
-// BuildIndexFromReader reads a JSON array of objects from any io.Reader.
-func BuildIndexFromReader(r io.Reader, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
-	index := NewIndex()
+// BuildFromReader reads a JSON array of objects from any io.Reader.
+func (index *InvertedIndex) BuildFromReader(r io.Reader, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
 	decoder := json.NewDecoder(r)
 	token, err := decoder.Token()
 	if err != nil {
@@ -250,9 +252,8 @@ func indexDoc(index *InvertedIndex, r job, freq map[string]int) {
 	index.DocLengths[r.id] = docLen
 }
 
-// BuildIndexFromRecords builds directly from a slice of already‐decoded GenericRecord.
-func BuildIndexFromRecords(records []GenericRecord, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
-	index := NewIndex()
+// BuildFromRecords builds directly from a slice of already‐decoded GenericRecord.
+func (index *InvertedIndex) BuildFromRecords(records []GenericRecord, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	jobs := make(chan job, len(records))
@@ -284,10 +285,10 @@ func BuildIndexFromRecords(records []GenericRecord, callback ...func(v GenericRe
 	return index, nil
 }
 
-func BuildIndexFromStruct(slice any, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
+func (index *InvertedIndex) BuildFromStruct(slice any, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
 	v := reflect.ValueOf(slice)
 	if v.Kind() != reflect.Slice {
-		return nil, fmt.Errorf("BuildIndexFromStructs needs a slice, got %T", slice)
+		return nil, fmt.Errorf("BuildFromStructs needs a slice, got %T", slice)
 	}
 	records := make([]GenericRecord, v.Len())
 	for i := 0; i < v.Len(); i++ {
@@ -302,30 +303,30 @@ func BuildIndexFromStruct(slice any, callback ...func(v GenericRecord) error) (*
 		}
 		records[i] = rec
 	}
-	return BuildIndexFromRecords(records, callback...)
+	return index.BuildFromRecords(records, callback...)
 }
 
-func BuildIndex(input any, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
+func (index *InvertedIndex) Build(input any, callback ...func(v GenericRecord) error) (*InvertedIndex, error) {
 	switch v := input.(type) {
 	case string:
 		trim := strings.TrimSpace(v)
 		if strings.HasPrefix(trim, "[") || strings.HasPrefix(trim, "{") {
-			return BuildIndexFromString(v, callback...)
+			return index.BuildFromString(v, callback...)
 		}
-		return BuildIndexFromFile(v, callback...)
+		return index.BuildFromFile(v, callback...)
 	case []byte:
-		return BuildIndexFromBytes(v, callback...)
+		return index.BuildFromBytes(v, callback...)
 	case io.Reader:
-		return BuildIndexFromReader(v, callback...)
+		return index.BuildFromReader(v, callback...)
 	case []GenericRecord:
-		return BuildIndexFromRecords(v, callback...)
+		return index.BuildFromRecords(v, callback...)
 	default:
 		rv := reflect.ValueOf(input)
 		if rv.Kind() == reflect.Slice {
 			elem := rv.Type().Elem()
 			if elem.Kind() == reflect.Struct ||
 				elem.Kind() == reflect.Map && elem.Key().Kind() == reflect.String && elem.Elem().Kind() == reflect.Interface {
-				return BuildIndexFromStruct(input)
+				return index.BuildFromStruct(input)
 			}
 		}
 		return nil, fmt.Errorf("unsupported input type: %T", input)

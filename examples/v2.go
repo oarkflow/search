@@ -18,7 +18,7 @@ import (
 // messages for indexing progress
 // indexDoneMsg signals completion; no index payload since we build in place
 type indexedMsg struct{ current, total int }
-type indexDoneMsg struct{}
+type indexDoneMsg struct{ index *v1.InvertedIndex }
 
 // debounced search message
 type searchMsg string
@@ -43,10 +43,7 @@ type model struct {
 	pageSize    int
 }
 
-func initialModel(jsonPath string) model {
-	// create empty index for incremental build
-	idx := v1.NewIndex()
-
+func initialModel(jsonPath string) *model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
@@ -57,27 +54,27 @@ func initialModel(jsonPath string) model {
 	columns := []table.Column{
 		{Title: "DocID", Width: 6},
 		{Title: "Score", Width: 7},
-		{Title: "Data", Width: 50},
+		{Title: "Data", Width: 1000},
 	}
 	tbl := table.New(table.WithColumns(columns))
 	tbl.SetStyles(table.DefaultStyles())
 	tbl.SetHeight(10)
 
-	m := model{
+	m := &model{
+		index:      v1.NewIndex(),
 		indexing:   true,
 		spinner:    sp,
 		progressCh: make(chan tea.Msg, 1),
 		textInput:  ti,
 		table:      tbl,
-		index:      idx,
 		pageSize:   10,
 	}
 	// start indexing, passing the index pointer
-	go runIndexing(jsonPath, m.index, m.progressCh)
+	go m.runIndexing(jsonPath, m.progressCh)
 	return m
 }
 
-func runIndexing(path string, idx *v1.InvertedIndex, progressCh chan tea.Msg) {
+func (m *model) runIndexing(path string, progressCh chan tea.Msg) {
 	// get total rows
 	total, err := v1.RowCount(path)
 	if err != nil {
@@ -86,7 +83,7 @@ func runIndexing(path string, idx *v1.InvertedIndex, progressCh chan tea.Msg) {
 	var count int
 
 	// build index incrementally: callback adds each record
-	_, err = v1.BuildIndex(path, func(rec v1.GenericRecord) error {
+	_, err = m.index.Build(path, func(rec v1.GenericRecord) error {
 		count++
 		if count%100000 == 0 {
 			select {
@@ -99,10 +96,11 @@ func runIndexing(path string, idx *v1.InvertedIndex, progressCh chan tea.Msg) {
 	if err != nil {
 		log.Fatalf("Error building index: %v", err)
 	}
+
 	// final progress
 	progressCh <- indexedMsg{current: count, total: total}
 	// signal indexing done
-	progressCh <- indexDoneMsg{}
+	progressCh <- indexDoneMsg{index: m.index}
 }
 
 func nextProgressMsg(ch chan tea.Msg) tea.Cmd {
@@ -126,14 +124,14 @@ func paginate(results []v1.ScoredDoc, page, size int) []v1.ScoredDoc {
 	return results[start:end]
 }
 
-func (m model) Init() tea.Cmd {
+func (m *model) Init() tea.Cmd {
 	return tea.Batch(
 		spinner.Tick,
 		nextProgressMsg(m.progressCh),
 	)
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// global quit on Ctrl+C
 	if key, ok := msg.(tea.KeyMsg); ok {
 		if key.Type == tea.KeyCtrlC {
@@ -143,7 +141,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.Type == tea.KeyCtrlN && len(m.results) > 0 {
 			if (m.currentPage+1)*m.pageSize < len(m.results) {
 				m.currentPage++
-				rows := []table.Row{}
+				var rows []table.Row
 				for _, sd := range paginate(m.results, m.currentPage, m.pageSize) {
 					rows = append(rows, table.Row{fmt.Sprint(sd.DocID), fmt.Sprintf("%.4f", sd.Score), fmt.Sprint(m.index.Documents[sd.DocID])})
 				}
@@ -153,7 +151,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if key.Type == tea.KeyCtrlP && m.currentPage > 0 {
 			m.currentPage--
-			rows := []table.Row{}
+			var rows []table.Row
 			for _, sd := range paginate(m.results, m.currentPage, m.pageSize) {
 				rows = append(rows, table.Row{fmt.Sprint(sd.DocID), fmt.Sprintf("%.4f", sd.Score), fmt.Sprint(m.index.Documents[sd.DocID])})
 			}
@@ -181,12 +179,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case searchMsg:
+		if m.index == nil {
+			m.table.SetRows([]table.Row{{"N/A", "N/A", "Indexing in progress..."}})
+			return m, nil
+		}
 		q := string(msg)
-		if len(q) >= 3 {
+		if len(q) >= 1 {
 			scored := v1.ScoreQuery(v1.NewTermQuery(q, true, 1), m.index, q)
 			m.results = scored
 			m.currentPage = 0
-			rows := []table.Row{}
+			var rows []table.Row
 			for _, sd := range paginate(scored, 0, m.pageSize) {
 				rows = append(rows, table.Row{fmt.Sprint(sd.DocID), fmt.Sprintf("%.4f", sd.Score), fmt.Sprint(m.index.Documents[sd.DocID])})
 			}
@@ -217,7 +219,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m model) View() string {
+func (m *model) View() string {
 	// always show input & table
 	searchUI := fmt.Sprintf("%s\n\n%s", m.textInput.View(), m.table.View())
 

@@ -23,7 +23,8 @@ import (
 type indexedMsg struct{ current, total int }
 type indexDoneMsg struct{ index *v1.InvertedIndex }
 
-// debounced search message
+// noopMsg used for non-blocking polling
+type noopMsg struct{}
 type searchMsg string
 
 type model struct {
@@ -59,7 +60,7 @@ func initialModel(jsonPath string) *model {
 	columns := []table.Column{
 		{Title: "DocID", Width: 6},
 		{Title: "Score", Width: 7},
-		{Title: "Data", Width: 100}, // width limit for data column
+		{Title: "Data", Width: 100},
 	}
 	tbl := table.New(
 		table.WithColumns(columns),
@@ -75,11 +76,12 @@ func initialModel(jsonPath string) *model {
 		table:      tbl,
 		pageSize:   10,
 	}
-	go m.runIndexing(jsonPath, m.progressCh)
+	// start indexing in background
+	go m.runIndexing(jsonPath)
 	return m
 }
 
-func (m *model) runIndexing(path string, progressCh chan tea.Msg) {
+func (m *model) runIndexing(path string) {
 	total, err := utils.RowCount(path)
 	if err != nil {
 		log.Fatalf("Error counting rows: %v", err)
@@ -87,9 +89,10 @@ func (m *model) runIndexing(path string, progressCh chan tea.Msg) {
 	var count int
 	err = m.index.Build(path, func(rec v1.GenericRecord) error {
 		count++
-		if count%100000 == 0 {
+		if count%100000 == 0 || count == total {
+			// non-blocking send
 			select {
-			case progressCh <- indexedMsg{current: count, total: total}:
+			case m.progressCh <- indexedMsg{current: count, total: total}:
 			default:
 			}
 		}
@@ -98,18 +101,25 @@ func (m *model) runIndexing(path string, progressCh chan tea.Msg) {
 	if err != nil {
 		log.Fatalf("Error building index: %v", err)
 	}
-	progressCh <- indexedMsg{current: count, total: total}
-	progressCh <- indexDoneMsg{index: m.index}
+	// final updates
+	m.progressCh <- indexedMsg{current: count, total: total}
+	m.progressCh <- indexDoneMsg{index: m.index}
 }
 
+// nextProgressMsg polls progressCh non-blockingly
 func nextProgressMsg(ch chan tea.Msg) tea.Cmd {
-	return func() tea.Msg {
-		return <-ch
-	}
+	return tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {
+		select {
+		case msg := <-ch:
+			return msg
+		default:
+			return noopMsg{}
+		}
+	})
 }
 
 func debounceSearch(q string) tea.Cmd {
-	return tea.Tick(time.Millisecond*200, func(t time.Time) tea.Msg {
+	return tea.Tick(time.Millisecond*200, func(_ time.Time) tea.Msg {
 		return searchMsg(q)
 	})
 }
@@ -134,6 +144,7 @@ func mapToTable(data []v1.GenericRecord) ([]table.Column, []table.Row) {
 	if len(data) == 0 {
 		return nil, nil
 	}
+	// collect keys and max widths
 	keys := make([]string, 0, len(data[0]))
 	for key := range data[0] {
 		keys = append(keys, key)
@@ -161,18 +172,15 @@ func mapToTable(data []v1.GenericRecord) ([]table.Column, []table.Row) {
 	}
 	var columns []table.Column
 	for _, key := range keys {
-		columns = append(columns, table.Column{
-			Title: key,
-			Width: colWidths[key] + 1,
-		})
+		columns = append(columns, table.Column{Title: key, Width: colWidths[key] + 1})
 	}
-
 	return columns, rows
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
-		switch key.Type {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		case tea.KeyCtrlRight:
@@ -200,50 +208,59 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-	}
-	switch msg := msg.(type) {
+		// text input update and debounce
+		var cmd tea.Cmd
+		m.textInput, cmd = m.textInput.Update(msg)
+		query := strings.TrimSpace(m.textInput.Value())
+		if len(query) >= 1 {
+			return m, tea.Batch(cmd, debounceSearch(query))
+		}
+		m.results = nil
+		m.table.SetRows(nil)
+		return m, cmd
+
 	case spinner.TickMsg:
 		if m.indexing {
 			m.spinner, _ = m.spinner.Update(msg)
 			return m, tea.Batch(spinner.Tick, nextProgressMsg(m.progressCh))
 		}
 		return m, nil
+
 	case indexedMsg:
 		m.current = msg.current
 		m.total = msg.total
 		return m, nextProgressMsg(m.progressCh)
+
 	case indexDoneMsg:
 		m.indexing = false
 		return m, nil
+
 	case searchMsg:
-		current := strings.TrimSpace(m.textInput.Value())
-		if string(msg) != current {
+		query := strings.TrimSpace(m.textInput.Value())
+		if string(msg) != query || len(query) == 0 {
 			return m, nil
 		}
-		scored := m.index.Search(v1.NewTermQuery(current, true, 1), current)
-		m.results = scored
+		m.results = m.index.Search(v1.NewTermQuery(query, true, 1), query)
 		m.currentPage = 0
-		var recs []v1.GenericRecord
-		for _, sd := range paginate(scored, 0, m.pageSize) {
-			recs = append(recs, m.index.Documents[sd.DocID])
-		}
-		if cols, rows := mapToTable(recs); len(cols) > 0 {
+		// build initial page
+		if recs := paginate(m.results, 0, m.pageSize); len(recs) > 0 {
+			var data []v1.GenericRecord
+			for _, sd := range recs {
+				data = append(data, m.index.Documents[sd.DocID])
+			}
+			cols, rows := mapToTable(data)
 			m.table.SetColumns(cols)
 			m.table.SetRows(rows)
 		} else {
 			m.table.SetRows(nil)
 		}
 		return m, nil
-	case tea.KeyMsg:
-		var cmd tea.Cmd
-		m.textInput, cmd = m.textInput.Update(msg)
-		current := strings.TrimSpace(m.textInput.Value())
-		if len(current) >= 1 {
-			return m, debounceSearch(current)
+
+	case noopMsg:
+		if m.indexing {
+			return m, nextProgressMsg(m.progressCh)
 		}
-		m.results = nil
-		m.table.SetRows(nil)
-		return m, cmd
+		return m, nil
 
 	default:
 		return m, nil
@@ -263,7 +280,7 @@ func (m *model) View() string {
 		totalPages := int(math.Ceil(float64(len(m.results)) / float64(m.pageSize)))
 		pageInfo = fmt.Sprintf("Use Ctrl+→ / Ctrl+← to navigate pages. Page %d/%d. Ctrl+C to quit.", m.currentPage+1, totalPages)
 	} else {
-		pageInfo = "Type at least 3 characters to search. Ctrl+C to quit."
+		pageInfo = "Type at least 1 character to search. Ctrl+C to quit."
 	}
 	return fmt.Sprintf("%s\n\n%s\n\n%s", searchUI, progress, pageInfo)
 }

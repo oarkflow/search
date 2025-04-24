@@ -16,7 +16,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error building index: %v", err)
 	}
-	fmt.Printf("Index built for %d documents in %s\n", index.TotalDocs, time.Since(startTime))
+	fmt.Println(fmt.Sprintf("Index built for %d documents in %s", index.TotalDocs, time.Since(startTime)))
 	termQ := v1.NewTermQuery("33965", true, 1)
 	boolQ := v1.BoolQuery{
 		Must: []v1.Query{termQ},
@@ -27,10 +27,10 @@ func main() {
 	page := 1
 	perPage := 1
 	paginatedResults := v1.Paginate(scoredDocs, page, perPage)
-	fmt.Printf("Found %d matching documents (showing page %d): Latency: %s\n", len(scoredDocs), page, since)
+	fmt.Println(fmt.Sprintf("Found %d matching documents (showing page %d): Latency: %s", len(scoredDocs), page, since))
 	for _, sd := range paginatedResults {
 		rec := index.Documents[sd.DocID]
-		fmt.Printf("DocID: %d | Score: %.4f | Data: %+v\n", sd.DocID, sd.Score, rec)
+		fmt.Println(fmt.Sprintf("DocID: %d | Score: %.4f | Data: %+v", sd.DocID, sd.Score, rec))
 	}
 
 	termQ = v1.NewTermQuery("33964", true, 1)
@@ -38,9 +38,9 @@ func main() {
 	scoredDocs = index.Search(boolQ, "33964")
 	since = time.Since(startTime)
 	paginatedResults = v1.Paginate(scoredDocs, page, perPage)
-	fmt.Printf("Found %d matching documents (showing page %d): Latency: %s\n", len(scoredDocs), page, since)
+	fmt.Println(fmt.Sprintf("Found %d matching documents (showing page %d): Latency: %s", len(scoredDocs), page, since))
 	for _, sd := range paginatedResults {
 		rec := index.Documents[sd.DocID]
-		fmt.Printf("DocID: %d | Score: %.4f | Data: %+v\n", sd.DocID, sd.Score, rec)
+		fmt.Println(fmt.Sprintf("DocID: %d | Score: %.4f | Data: %+v", sd.DocID, sd.Score, rec))
 	}
 }

@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/goccy/go-json"
+	"github.com/oarkflow/json"
 )
 
 type GenericRecord map[string]any
@@ -183,7 +183,7 @@ func BuildIndexFromReader(r io.Reader) (*InvertedIndex, error) {
 	}
 	jobs := make(chan job, 100)
 	results := make(chan result, 100)
-	workerCount := 4
+	workerCount := runtime.NumCPU()
 	var workerWg sync.WaitGroup
 	worker := func() {
 		defer workerWg.Done()
@@ -224,6 +224,11 @@ func BuildIndexFromReader(r io.Reader) (*InvertedIndex, error) {
 	workerWg.Wait()
 	close(results)
 	<-done
+	index.update()
+	return index, nil
+}
+
+func (index *InvertedIndex) update() {
 	totalLength := 0
 	for _, l := range index.DocLengths {
 		totalLength += l
@@ -231,7 +236,6 @@ func BuildIndexFromReader(r io.Reader) (*InvertedIndex, error) {
 	if index.TotalDocs > 0 {
 		index.AvgDocLength = float64(totalLength) / float64(index.TotalDocs)
 	}
-	return index, nil
 }
 
 func getFrequency(rec GenericRecord) map[string]int {
@@ -281,13 +285,7 @@ func BuildIndexFromRecords(records []GenericRecord) (*InvertedIndex, error) {
 	}
 	close(jobs)
 	wg.Wait()
-	sum := 0
-	for _, l := range index.DocLengths {
-		sum += l
-	}
-	if index.TotalDocs > 0 {
-		index.AvgDocLength = float64(sum) / float64(index.TotalDocs)
-	}
+	index.update()
 	return index, nil
 }
 

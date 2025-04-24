@@ -3,12 +3,12 @@ module github.com/oarkflow/search
 go 1.24.2
 
 require (
-	github.com/goccy/go-json v0.10.5
 	github.com/oarkflow/date v0.0.4
 	github.com/oarkflow/filters v0.0.35
 	github.com/oarkflow/flydb v0.0.1
 	github.com/oarkflow/frame v0.0.69
 	github.com/oarkflow/gopool v0.0.2
+	github.com/oarkflow/json v0.0.26
 	github.com/oarkflow/log v1.0.83
 	github.com/oarkflow/metadata v0.0.76
 	github.com/oarkflow/msgpack v0.0.1
@@ -29,6 +29,7 @@ require (
 	github.com/cloudwego/netpoll v0.7.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-sql-driver/mysql v1.9.2 // indirect
+	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/goccy/go-reflect v1.2.0 // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
@@ -38,7 +39,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.7.4 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20250317134145-8bc96cf8fc35 // indirect
 	github.com/microsoft/go-mssqldb v1.8.0 // indirect
 	github.com/nyaruka/phonenumbers v1.6.1 // indirect
@@ -47,8 +47,6 @@ require (
 	github.com/oarkflow/errors v0.0.6 // indirect
 	github.com/oarkflow/expr v0.0.11 // indirect
 	github.com/oarkflow/jet v0.0.4 // indirect
-	github.com/oarkflow/json v0.0.25 // indirect
-	github.com/oarkflow/pkg v0.1.47 // indirect
 	github.com/oarkflow/protocol v0.0.16 // indirect
 	github.com/oarkflow/render v0.0.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect

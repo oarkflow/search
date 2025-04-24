@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,6 +32,14 @@ type InvertedIndex struct {
 	Documents    map[int]GenericRecord
 	TotalDocs    int
 	AvgDocLength float64
+}
+
+func NewIndex() *InvertedIndex {
+	return &InvertedIndex{
+		Index:      make(map[string][]Posting),
+		DocLengths: make(map[int]int),
+		Documents:  make(map[int]GenericRecord),
+	}
 }
 
 type ScoredDoc struct {
@@ -131,13 +140,39 @@ func CombinedText(rec GenericRecord) string {
 	return strings.Join(parts, " ")
 }
 
+// BuildIndexFromFile is your old BuildIndex, now just a thin wrapper.
+func BuildIndexFromFile(path string) (*InvertedIndex, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return BuildIndexFromReader(f)
+}
+
+// BuildIndexFromBytes lets you index raw JSON bytes.
+func BuildIndexFromBytes(data []byte) (*InvertedIndex, error) {
+	return BuildIndexFromReader(bytes.NewReader(data))
+}
+
+// BuildIndexFromString lets you index a JSON string.
+func BuildIndexFromString(jsonStr string) (*InvertedIndex, error) {
+	return BuildIndexFromReader(strings.NewReader(jsonStr))
+}
+
+type job struct {
+	id  int
+	rec GenericRecord
+}
+type result struct {
+	id   int
+	rec  GenericRecord
+	freq map[string]int
+}
+
 // BuildIndexFromReader reads a JSON array of objects from any io.Reader.
 func BuildIndexFromReader(r io.Reader) (*InvertedIndex, error) {
-	index := &InvertedIndex{
-		Index:      make(map[string][]Posting),
-		DocLengths: make(map[int]int),
-		Documents:  make(map[int]GenericRecord),
-	}
+	index := NewIndex()
 	decoder := json.NewDecoder(r)
 	token, err := decoder.Token()
 	if err != nil {
@@ -146,15 +181,6 @@ func BuildIndexFromReader(r io.Reader) (*InvertedIndex, error) {
 	if delim, ok := token.(json.Delim); !ok || delim != '[' {
 		return nil, fmt.Errorf("expected '[' at beginning of JSON array, got: %v", token)
 	}
-	type job struct {
-		id  int
-		rec GenericRecord
-	}
-	type result struct {
-		id   int
-		rec  GenericRecord
-		freq map[string]int
-	}
 	jobs := make(chan job, 100)
 	results := make(chan result, 100)
 	workerCount := 4
@@ -162,12 +188,7 @@ func BuildIndexFromReader(r io.Reader) (*InvertedIndex, error) {
 	worker := func() {
 		defer workerWg.Done()
 		for j := range jobs {
-			combined := CombinedText(j.rec)
-			tokens := Tokenize(combined)
-			freq := make(map[string]int)
-			for _, t := range tokens {
-				freq[t]++
-			}
+			freq := getFrequency(j.rec)
 			results <- result{id: j.id, rec: j.rec, freq: freq}
 		}
 	}
@@ -196,15 +217,7 @@ func BuildIndexFromReader(r io.Reader) (*InvertedIndex, error) {
 	done := make(chan struct{})
 	go func() {
 		for r := range results {
-			index.Documents[r.id] = r.rec
-			docLen := 0
-			for t, count := range r.freq {
-				docLen += count
-				postings := index.Index[t]
-				postings = append(postings, Posting{DocID: r.id, Frequency: count})
-				index.Index[t] = postings
-			}
-			index.DocLengths[r.id] = docLen
+			indexDoc(index, job{id: r.id, rec: r.rec}, r.freq)
 		}
 		done <- struct{}{}
 	}()
@@ -221,81 +234,53 @@ func BuildIndexFromReader(r io.Reader) (*InvertedIndex, error) {
 	return index, nil
 }
 
-// BuildIndexFromFile is your old BuildIndex, now just a thin wrapper.
-func BuildIndexFromFile(path string) (*InvertedIndex, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
+func getFrequency(rec GenericRecord) map[string]int {
+	combined := CombinedText(rec)
+	tokens := Tokenize(combined)
+	freq := make(map[string]int)
+	for _, t := range tokens {
+		freq[t]++
 	}
-	defer f.Close()
-	return BuildIndexFromReader(f)
+	return freq
 }
 
-// BuildIndexFromBytes lets you index raw JSON bytes.
-func BuildIndexFromBytes(data []byte) (*InvertedIndex, error) {
-	return BuildIndexFromReader(bytes.NewReader(data))
-}
-
-// BuildIndexFromString lets you index a JSON string.
-func BuildIndexFromString(jsonStr string) (*InvertedIndex, error) {
-	return BuildIndexFromReader(strings.NewReader(jsonStr))
+func indexDoc(index *InvertedIndex, r job, freq map[string]int) {
+	index.Documents[r.id] = r.rec
+	docLen := 0
+	for t, count := range freq {
+		docLen += count
+		postings := index.Index[t]
+		postings = append(postings, Posting{DocID: r.id, Frequency: count})
+		index.Index[t] = postings
+	}
+	index.DocLengths[r.id] = docLen
 }
 
 // BuildIndexFromRecords builds directly from a slice of already‐decoded GenericRecord.
 func BuildIndexFromRecords(records []GenericRecord) (*InvertedIndex, error) {
-	index := &InvertedIndex{
-		Index:      make(map[string][]Posting),
-		DocLengths: make(map[int]int),
-		Documents:  make(map[int]GenericRecord),
-	}
+	index := NewIndex()
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	jobs := make(chan struct {
-		id  int
-		rec GenericRecord
-	}, len(records))
-
-	// spawn same worker pool…
-	workerCount := 4
+	jobs := make(chan job, len(records))
+	workerCount := runtime.NumCPU()
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
-				combined := CombinedText(job.rec)
-				tokens := Tokenize(combined)
-				freq := make(map[string]int)
-				for _, t := range tokens {
-					freq[t]++
-				}
+				freq := getFrequency(job.rec)
 				mu.Lock()
-				index.Documents[job.id] = job.rec
-				length := 0
-				for term, cnt := range freq {
-					length += cnt
-					index.Index[term] = append(index.Index[term], Posting{
-						DocID:     job.id,
-						Frequency: cnt,
-					})
-				}
-				index.DocLengths[job.id] = length
+				indexDoc(index, job, freq)
 				index.TotalDocs++
 				mu.Unlock()
 			}
 		}()
 	}
-
-	// feed
 	for i, rec := range records {
-		jobs <- struct {
-			id  int
-			rec GenericRecord
-		}{i + 1, rec}
+		jobs <- job{i + 1, rec}
 	}
 	close(jobs)
 	wg.Wait()
-
-	// avg length
 	sum := 0
 	for _, l := range index.DocLengths {
 		sum += l
@@ -306,14 +291,11 @@ func BuildIndexFromRecords(records []GenericRecord) (*InvertedIndex, error) {
 	return index, nil
 }
 
-// BuildIndexFromStruct accepts a slice of arbitrary structs (or maps), marshals each
-// to JSON and back into GenericRecord under the hood.
 func BuildIndexFromStruct(slice any) (*InvertedIndex, error) {
 	v := reflect.ValueOf(slice)
 	if v.Kind() != reflect.Slice {
 		return nil, fmt.Errorf("BuildIndexFromStructs needs a slice, got %T", slice)
 	}
-
 	records := make([]GenericRecord, v.Len())
 	for i := 0; i < v.Len(); i++ {
 		elem := v.Index(i).Interface()
@@ -330,7 +312,6 @@ func BuildIndexFromStruct(slice any) (*InvertedIndex, error) {
 	return BuildIndexFromRecords(records)
 }
 
-// BuildIndex is the unified entry: accepts file paths, JSON, readers, records or structs
 func BuildIndex(input any) (*InvertedIndex, error) {
 	switch v := input.(type) {
 	case string:

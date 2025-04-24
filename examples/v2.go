@@ -1,3 +1,4 @@
+// Filename: main.go
 package main
 
 import (
@@ -15,7 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/oarkflow/search/v1"
+	v1 "github.com/oarkflow/search/v1"
 	"github.com/oarkflow/search/v1/utils"
 )
 
@@ -26,18 +27,17 @@ type indexDoneMsg struct{ index *v1.InvertedIndex }
 type searchMsg string
 
 type model struct {
-	indexing     bool
-	spinner      spinner.Model
-	current      int
-	total        int
-	progressCh   chan tea.Msg
-	textInput    textinput.Model
-	pendingQuery string
-	table        table.Model
-	index        *v1.InvertedIndex
-	results      []v1.ScoredDoc
-	currentPage  int
-	pageSize     int
+	indexing    bool
+	spinner     spinner.Model
+	current     int
+	total       int
+	progressCh  chan tea.Msg
+	textInput   textinput.Model
+	table       table.Model
+	index       *v1.InvertedIndex
+	results     []v1.ScoredDoc
+	currentPage int
+	pageSize    int
 }
 
 func customTableStyles() table.Styles {
@@ -54,14 +54,18 @@ func initialModel(jsonPath string) *model {
 	sp.Spinner = spinner.Dot
 	ti := textinput.New()
 	ti.Width = 100
-	ti.Placeholder = "Type to search (min 3 chars)..."
+	ti.Placeholder = "Type to search..."
 	ti.Focus()
 	columns := []table.Column{
 		{Title: "DocID", Width: 6},
 		{Title: "Score", Width: 7},
-		{Title: "Data", Width: 1000},
+		{Title: "Data", Width: 100}, // width limit for data column
 	}
-	tbl := table.New(table.WithColumns(columns), table.WithStyles(customTableStyles()), table.WithHeight(10))
+	tbl := table.New(
+		table.WithColumns(columns),
+		table.WithStyles(customTableStyles()),
+		table.WithHeight(10),
+	)
 	m := &model{
 		index:      v1.NewIndex(),
 		indexing:   true,
@@ -139,15 +143,19 @@ func mapToTable(data []v1.GenericRecord) ([]table.Column, []table.Row) {
 	for _, key := range keys {
 		colWidths[key] = len(key)
 	}
+	for _, rowMap := range data {
+		for _, key := range keys {
+			valStr := fmt.Sprintf("%v", rowMap[key])
+			if len(valStr) > colWidths[key] {
+				colWidths[key] = len(valStr)
+			}
+		}
+	}
 	var rows []table.Row
 	for _, rowMap := range data {
 		var row table.Row
 		for _, key := range keys {
-			val := fmt.Sprintf("%v", rowMap[key])
-			if len(val) > colWidths[key] {
-				colWidths[key] = len(val)
-			}
-			row = append(row, val)
+			row = append(row, fmt.Sprintf("%v", rowMap[key]))
 		}
 		rows = append(rows, row)
 	}
@@ -164,33 +172,32 @@ func mapToTable(data []v1.GenericRecord) ([]table.Column, []table.Row) {
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
-		if key.Type == tea.KeyCtrlC {
+		switch key.Type {
+		case tea.KeyCtrlC:
 			return m, tea.Quit
-		}
-		if key.Type == tea.KeyCtrlRight && len(m.results) > 0 {
-			if (m.currentPage+1)*m.pageSize < len(m.results) {
+		case tea.KeyCtrlRight:
+			if len(m.results) > 0 && (m.currentPage+1)*m.pageSize < len(m.results) {
 				m.currentPage++
-				var rows []v1.GenericRecord
+				var recs []v1.GenericRecord
 				for _, sd := range paginate(m.results, m.currentPage, m.pageSize) {
-					row := m.index.Documents[sd.DocID]
-					rows = append(rows, row)
+					recs = append(recs, m.index.Documents[sd.DocID])
 				}
-				columns, r := mapToTable(rows)
-				m.table.SetColumns(columns)
-				m.table.SetRows(r)
+				cols, rows := mapToTable(recs)
+				m.table.SetColumns(cols)
+				m.table.SetRows(rows)
 			}
 			return m, nil
-		}
-		if key.Type == tea.KeyCtrlLeft && m.currentPage > 0 {
-			m.currentPage--
-			var rows []v1.GenericRecord
-			for _, sd := range paginate(m.results, m.currentPage, m.pageSize) {
-				row := m.index.Documents[sd.DocID]
-				rows = append(rows, row)
+		case tea.KeyCtrlLeft:
+			if m.currentPage > 0 {
+				m.currentPage--
+				var recs []v1.GenericRecord
+				for _, sd := range paginate(m.results, m.currentPage, m.pageSize) {
+					recs = append(recs, m.index.Documents[sd.DocID])
+				}
+				cols, rows := mapToTable(recs)
+				m.table.SetColumns(cols)
+				m.table.SetRows(rows)
 			}
-			columns, r := mapToTable(rows)
-			m.table.SetColumns(columns)
-			m.table.SetRows(r)
 			return m, nil
 		}
 	}
@@ -209,39 +216,33 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.indexing = false
 		return m, nil
 	case searchMsg:
-		if m.index == nil {
-			m.table.SetRows([]table.Row{{"N/A", "N/A", "Indexing in progress..."}})
+		current := strings.TrimSpace(m.textInput.Value())
+		if string(msg) != current {
 			return m, nil
 		}
-		q := string(msg)
-		if len(q) >= 1 {
-			scored := m.index.Search(v1.NewTermQuery(q, true, 1), q)
-			m.results = scored
-			m.currentPage = 0
-			var rows []v1.GenericRecord
-			for _, sd := range paginate(scored, 0, m.pageSize) {
-				row := m.index.Documents[sd.DocID]
-				rows = append(rows, row)
-			}
-			columns, r := mapToTable(rows)
-			if len(columns) > 0 {
-				m.table.SetColumns(columns)
-				m.table.SetRows(r)
-			}
+		scored := m.index.Search(v1.NewTermQuery(current, true, 1), current)
+		m.results = scored
+		m.currentPage = 0
+		var recs []v1.GenericRecord
+		for _, sd := range paginate(scored, 0, m.pageSize) {
+			recs = append(recs, m.index.Documents[sd.DocID])
+		}
+		if cols, rows := mapToTable(recs); len(cols) > 0 {
+			m.table.SetColumns(cols)
+			m.table.SetRows(rows)
 		} else {
-			m.results = nil
 			m.table.SetRows(nil)
 		}
 		return m, nil
 	case tea.KeyMsg:
 		var cmd tea.Cmd
 		m.textInput, cmd = m.textInput.Update(msg)
-		q := strings.TrimSpace(m.textInput.Value())
-		if q != "" {
-			return m, debounceSearch(q)
-		} else {
-			m.table.SetRows(nil)
+		current := strings.TrimSpace(m.textInput.Value())
+		if len(current) >= 1 {
+			return m, debounceSearch(current)
 		}
+		m.results = nil
+		m.table.SetRows(nil)
 		return m, cmd
 
 	default:
@@ -260,8 +261,7 @@ func (m *model) View() string {
 	var pageInfo string
 	if len(m.results) > 0 {
 		totalPages := int(math.Ceil(float64(len(m.results)) / float64(m.pageSize)))
-		pageInfo = "Use Ctrl + <ArrowRight>/Ctrl + <ArrowRight> to navigate pages. Ctrl+C to quit."
-		pageInfo += fmt.Sprintf(" (Page %d/%d)", m.currentPage+1, totalPages)
+		pageInfo = fmt.Sprintf("Use Ctrl+→ / Ctrl+← to navigate pages. Page %d/%d. Ctrl+C to quit.", m.currentPage+1, totalPages)
 	} else {
 		pageInfo = "Type at least 3 characters to search. Ctrl+C to quit."
 	}

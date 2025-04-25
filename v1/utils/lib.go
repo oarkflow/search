@@ -11,6 +11,10 @@ import (
 	"github.com/oarkflow/json"
 )
 
+func ToString(value interface{}) string {
+	return fmt.Sprint(value)
+}
+
 func Intersect(a, b []int) []int {
 	m := make(map[int]bool)
 	for _, id := range a {

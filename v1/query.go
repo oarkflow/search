@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -135,4 +136,84 @@ func (bq BoolQuery) Evaluate(index *Index) []int {
 		mustResult = utils.Subtract(mustResult, q.Evaluate(index))
 	}
 	return mustResult
+}
+
+// MatchQuery evaluates a query by matching a field's content with a query string.
+type MatchQuery struct {
+	Field string
+	Query string
+}
+
+func (mq MatchQuery) Evaluate(index *Index) []int {
+	var result []int
+	search := strings.ToLower(mq.Query)
+	for docID, rec := range index.Documents {
+		if val, ok := rec[mq.Field]; ok {
+			strVal := strings.ToLower(strings.TrimSpace(utils.ToString(val)))
+			if strings.Contains(strVal, search) {
+				result = append(result, docID)
+			}
+		}
+	}
+	return result
+}
+
+// WildcardQuery evaluates a query using wildcard patterns on a field.
+type WildcardQuery struct {
+	Field   string
+	Pattern string // supports '*' as wildcard
+}
+
+func (wq WildcardQuery) Evaluate(index *Index) []int {
+	var result []int
+	// Convert wildcard '*' to regex pattern
+	regexPattern := "^" + regexp.QuoteMeta(wq.Pattern) + "$"
+	regexPattern = strings.ReplaceAll(regexPattern, "\\*", ".*")
+	re, err := regexp.Compile(regexPattern)
+	if err != nil {
+		return result
+	}
+	for docID, rec := range index.Documents {
+		if val, ok := rec[wq.Field]; ok {
+			strVal := utils.ToString(val)
+			if re.MatchString(strVal) {
+				result = append(result, docID)
+			}
+		}
+	}
+	return result
+}
+
+// SQLQuery supports simple SQL queries: only equality conditions in the WHERE clause.
+// Example supported query: "SELECT * FROM docs WHERE field = 'value'"
+type SQLQuery struct {
+	SQL string
+}
+
+func (sq SQLQuery) Evaluate(index *Index) []int {
+	var result []int
+	parts := strings.SplitN(sq.SQL, "WHERE", 2)
+	if len(parts) != 2 {
+		return result
+	}
+	condition := strings.TrimSpace(parts[1])
+	// Assume condition is in the format: "field = 'value'" (or "field = value")
+	condParts := strings.SplitN(condition, "=", 2)
+	if len(condParts) != 2 {
+		return result
+	}
+	field := strings.TrimSpace(condParts[0])
+	value := strings.TrimSpace(condParts[1])
+	// Remove quotes if present
+	value = strings.Trim(value, "'\"")
+	value = strings.ToLower(value)
+	for docID, rec := range index.Documents {
+		if val, ok := rec[field]; ok {
+			strVal := strings.ToLower(strings.TrimSpace(utils.ToString(val)))
+			if strVal == value {
+				result = append(result, docID)
+			}
+		}
+	}
+	return result
 }

@@ -71,7 +71,7 @@ func (m *Manager) Search(ctx context.Context, name string, q string) ([]GenericR
 		fmt.Printf("index %s not found\n", name)
 		return nil, fmt.Errorf("index %s not found", name)
 	}
-	results, err := index.Search(ctx, NewTermQuery(q, true, 1), q)
+	results, err := index.Search(ctx, NewTermQuery(q, true, 1))
 	if err != nil {
 		return nil, err
 	}

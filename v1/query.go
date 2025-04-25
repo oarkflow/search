@@ -10,6 +10,7 @@ import (
 
 type Query interface {
 	Evaluate(index *Index) []int
+	Tokens() []string
 }
 
 type TermQuery struct {
@@ -48,6 +49,10 @@ func (tq TermQuery) Evaluate(index *Index) []int {
 	return result
 }
 
+func (tq TermQuery) Tokens() []string {
+	return []string{strings.ToLower(tq.Term)}
+}
+
 type PhraseQuery struct {
 	Phrase string
 }
@@ -62,6 +67,10 @@ func (pq PhraseQuery) Evaluate(index *Index) []int {
 		}
 	}
 	return result
+}
+
+func (pq PhraseQuery) Tokens() []string {
+	return utils.Tokenize(strings.ToLower(pq.Phrase))
 }
 
 type RangeQuery struct {
@@ -107,6 +116,10 @@ func (rq RangeQuery) Evaluate(index *Index) []int {
 	return result
 }
 
+func (rq RangeQuery) Tokens() []string {
+	return []string{}
+}
+
 type BoolQuery struct {
 	Must    []Query
 	Should  []Query
@@ -138,7 +151,31 @@ func (bq BoolQuery) Evaluate(index *Index) []int {
 	return mustResult
 }
 
-// MatchQuery evaluates a query by matching a field's content with a query string.
+func (bq BoolQuery) Tokens() []string {
+	tokensMap := make(map[string]struct{})
+	for _, q := range bq.Must {
+		if qt, ok := q.(interface{ Tokens() []string }); ok {
+			for _, t := range qt.Tokens() {
+				tokensMap[t] = struct{}{}
+			}
+		}
+	}
+	if len(tokensMap) == 0 {
+		for _, q := range bq.Should {
+			if qt, ok := q.(interface{ Tokens() []string }); ok {
+				for _, t := range qt.Tokens() {
+					tokensMap[t] = struct{}{}
+				}
+			}
+		}
+	}
+	var tokens []string
+	for t := range tokensMap {
+		tokens = append(tokens, t)
+	}
+	return tokens
+}
+
 type MatchQuery struct {
 	Field string
 	Query string
@@ -156,6 +193,11 @@ func (mq MatchQuery) Evaluate(index *Index) []int {
 		}
 	}
 	return result
+}
+
+func (mq MatchQuery) Tokens() []string {
+	// Tokenize the match query string.
+	return utils.Tokenize(strings.ToLower(mq.Query))
 }
 
 // WildcardQuery evaluates a query using wildcard patterns on a field.
@@ -182,6 +224,11 @@ func (wq WildcardQuery) Evaluate(index *Index) []int {
 		}
 	}
 	return result
+}
+
+func (wq WildcardQuery) Tokens() []string {
+	// Return the pattern as token (wildcard removed for simplicity).
+	return []string{strings.ToLower(wq.Pattern)}
 }
 
 // SQLQuery supports simple SQL queries: only equality conditions in the WHERE clause.
@@ -216,4 +263,9 @@ func (sq SQLQuery) Evaluate(index *Index) []int {
 		}
 	}
 	return result
+}
+
+func (sq SQLQuery) Tokens() []string {
+	// SQL query is parsed internally; no tokens extracted.
+	return []string{}
 }

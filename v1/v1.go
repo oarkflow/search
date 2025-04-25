@@ -374,7 +374,8 @@ type BM25 struct {
 
 var defaultBM25 = BM25{K: 1.2, B: 0.75}
 
-func (index *Index) Search(ctx context.Context, q Query, queryText string, bm ...BM25) ([]ScoredDoc, error) {
+// Search remove queryText and extract tokens from q if implemented.
+func (index *Index) Search(ctx context.Context, q Query, bm ...BM25) ([]ScoredDoc, error) {
 	index.RLock()
 	if index.indexingInProgress {
 		index.RUnlock()
@@ -385,7 +386,7 @@ func (index *Index) Search(ctx context.Context, q Query, queryText string, bm ..
 	if len(bm) > 0 {
 		params = bm[0]
 	}
-	queryTokens := utils.Tokenize(queryText)
+	queryTokens := q.Tokens()
 	docIDs := q.Evaluate(index)
 	var (
 		scored []ScoredDoc

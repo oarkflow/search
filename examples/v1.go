@@ -24,7 +24,7 @@ func main() {
 		Must: []v1.Query{termQ},
 	}
 	startTime = time.Now()
-	scoredDocs, err := index.Search(ctx, boolQ, "33965")
+	scoredDocs, err := index.Search(ctx, boolQ)
 	if err != nil {
 		log.Fatalf("Error searching index: %v", err)
 	}

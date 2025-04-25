@@ -8,7 +8,7 @@ import (
 )
 
 type Query interface {
-	Evaluate(index *InvertedIndex) []int
+	Evaluate(index *Index) []int
 }
 
 type TermQuery struct {
@@ -25,7 +25,7 @@ func NewTermQuery(term string, fuzzy bool, threshold int) TermQuery {
 	}
 }
 
-func (tq TermQuery) Evaluate(index *InvertedIndex) []int {
+func (tq TermQuery) Evaluate(index *Index) []int {
 	var tokens []string
 	if tq.Fuzzy {
 		tokens = index.FuzzySearch(strings.ToLower(tq.Term), tq.FuzzyThreshold)
@@ -51,7 +51,7 @@ type PhraseQuery struct {
 	Phrase string
 }
 
-func (pq PhraseQuery) Evaluate(index *InvertedIndex) []int {
+func (pq PhraseQuery) Evaluate(index *Index) []int {
 	var result []int
 	phrase := strings.ToLower(pq.Phrase)
 	for docID, rec := range index.Documents {
@@ -77,7 +77,7 @@ func NewRangeQuery(field string, lower, upper float64) RangeQuery {
 	}
 }
 
-func (rq RangeQuery) Evaluate(index *InvertedIndex) []int {
+func (rq RangeQuery) Evaluate(index *Index) []int {
 	var result []int
 	for docID, rec := range index.Documents {
 		val, ok := rec[rq.Field]
@@ -112,7 +112,7 @@ type BoolQuery struct {
 	MustNot []Query
 }
 
-func (bq BoolQuery) Evaluate(index *InvertedIndex) []int {
+func (bq BoolQuery) Evaluate(index *Index) []int {
 	var mustResult []int
 	if len(bq.Must) > 0 {
 		mustResult = bq.Must[0].Evaluate(index)

@@ -1,7 +1,9 @@
 // Filename: main.go
 package main
 
+/*
 import (
+	"context"
 	"fmt"
 	"log"
 	"math"
@@ -21,9 +23,7 @@ import (
 )
 
 type indexedMsg struct{ current, total int }
-type indexDoneMsg struct{ index *v1.InvertedIndex }
-
-// noopMsg used for non-blocking polling
+type indexDoneMsg struct{ index *v1.Index }
 type noopMsg struct{}
 type searchMsg string
 
@@ -35,7 +35,7 @@ type model struct {
 	progressCh  chan tea.Msg
 	textInput   textinput.Model
 	table       table.Model
-	index       *v1.InvertedIndex
+	index       *v1.Index
 	results     []v1.ScoredDoc
 	currentPage int
 	pageSize    int
@@ -68,7 +68,7 @@ func initialModel(jsonPath string) *model {
 		table.WithHeight(10),
 	)
 	m := &model{
-		index:      v1.NewIndex(),
+		index:      v1.NewIndex("test"),
 		indexing:   true,
 		spinner:    sp,
 		progressCh: make(chan tea.Msg, 1),
@@ -76,7 +76,6 @@ func initialModel(jsonPath string) *model {
 		table:      tbl,
 		pageSize:   10,
 	}
-	// start indexing in background
 	go m.runIndexing(jsonPath)
 	return m
 }
@@ -87,7 +86,7 @@ func (m *model) runIndexing(path string) {
 		log.Fatalf("Error counting rows: %v", err)
 	}
 	var count int
-	err = m.index.Build(path, func(rec v1.GenericRecord) error {
+	err = m.index.Build(context.Background(), path, func(rec v1.GenericRecord) error {
 		count++
 		if count%100000 == 0 || count == total {
 			// non-blocking send
@@ -101,12 +100,10 @@ func (m *model) runIndexing(path string) {
 	if err != nil {
 		log.Fatalf("Error building index: %v", err)
 	}
-	// final updates
 	m.progressCh <- indexedMsg{current: count, total: total}
 	m.progressCh <- indexDoneMsg{index: m.index}
 }
 
-// nextProgressMsg polls progressCh non-blockingly
 func nextProgressMsg(ch chan tea.Msg) tea.Cmd {
 	return tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {
 		select {
@@ -144,7 +141,6 @@ func mapToTable(data []v1.GenericRecord) ([]table.Column, []table.Row) {
 	if len(data) == 0 {
 		return nil, nil
 	}
-	// collect keys and max widths
 	keys := make([]string, 0, len(data[0]))
 	for key := range data[0] {
 		keys = append(keys, key)
@@ -208,7 +204,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		// text input update and debounce
 		var cmd tea.Cmd
 		m.textInput, cmd = m.textInput.Update(msg)
 		query := strings.TrimSpace(m.textInput.Value())
@@ -218,31 +213,30 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.results = nil
 		m.table.SetRows(nil)
 		return m, cmd
-
 	case spinner.TickMsg:
 		if m.indexing {
 			m.spinner, _ = m.spinner.Update(msg)
 			return m, tea.Batch(spinner.Tick, nextProgressMsg(m.progressCh))
 		}
 		return m, nil
-
 	case indexedMsg:
 		m.current = msg.current
 		m.total = msg.total
 		return m, nextProgressMsg(m.progressCh)
-
 	case indexDoneMsg:
 		m.indexing = false
 		return m, nil
-
 	case searchMsg:
 		query := strings.TrimSpace(m.textInput.Value())
 		if string(msg) != query || len(query) == 0 {
 			return m, nil
 		}
-		m.results = m.index.Search(v1.NewTermQuery(query, true, 1), query)
+		res, err := m.index.Search(context.Background(), v1.NewTermQuery(query, true, 1), query)
+		if err != nil {
+			return m, nil
+		}
+		m.results = res
 		m.currentPage = 0
-		// build initial page
 		if recs := paginate(m.results, 0, m.pageSize); len(recs) > 0 {
 			var data []v1.GenericRecord
 			for _, sd := range recs {
@@ -255,13 +249,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.table.SetRows(nil)
 		}
 		return m, nil
-
 	case noopMsg:
 		if m.indexing {
 			return m, nextProgressMsg(m.progressCh)
 		}
 		return m, nil
-
 	default:
 		return m, nil
 	}
@@ -296,3 +288,4 @@ func main() {
 		log.Fatalf("Error running program: %v", err)
 	}
 }
+*/

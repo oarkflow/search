@@ -8,11 +8,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/oarkflow/filters"
+	"github.com/oarkflow/xid"
 )
 
 const (
@@ -22,9 +25,8 @@ const (
 )
 
 type Document struct {
-	Key       string
-	Value     any
-	Timestamp int64
+	Key   string
+	Value any
 }
 
 func documentValueToString(value any) string {
@@ -235,9 +237,8 @@ func (kv *KVStore) removeFromIndex(doc Document) {
 
 func (kv *KVStore) AddDocument(key string, value any) error {
 	doc := Document{
-		Key:       key,
-		Value:     value,
-		Timestamp: time.Now().UnixNano(),
+		Key:   key,
+		Value: value,
 	}
 	if err := kv.writeWAL(doc); err != nil {
 		return err
@@ -265,9 +266,8 @@ func (kv *KVStore) UpdateDocument(key string, value any) error {
 
 func (kv *KVStore) DeleteDocument(key string) error {
 	doc := Document{
-		Key:       key,
-		Value:     nil,
-		Timestamp: time.Now().UnixNano(),
+		Key:   key,
+		Value: nil,
 	}
 	if err := kv.writeWAL(doc); err != nil {
 		return err
@@ -289,7 +289,6 @@ func (kv *KVStore) AddDocuments(docs []Document) error {
 	defer kv.walLock.Unlock()
 	enc := gob.NewEncoder(kv.walFile)
 	for _, doc := range docs {
-		doc.Timestamp = time.Now().UnixNano()
 		if err := enc.Encode(doc); err != nil {
 			return err
 		}
@@ -308,7 +307,7 @@ func (kv *KVStore) AddDocuments(docs []Document) error {
 	return kv.walFile.Sync()
 }
 
-func (kv *KVStore) Search(query string, filters ...Filter) []Document {
+func (kv *KVStore) Search(query string, conditions ...filters.Condition) []Document {
 	kv.memtableLock.RLock()
 	defer kv.memtableLock.RUnlock()
 	var results []Document
@@ -319,29 +318,13 @@ func (kv *KVStore) Search(query string, filters ...Filter) []Document {
 		}
 		text := documentValueToString(doc.Value)
 		if strings.Contains(strings.ToLower(key), lQuery) || strings.Contains(strings.ToLower(text), lQuery) {
-			if len(filters) > 0 {
+			if len(conditions) > 0 {
 				docMap, ok := doc.Value.(map[string]any)
 				if !ok {
 					continue
 				}
-				match := true
-				for _, f := range filters {
-					val, exists := docMap[f.Field]
-					if !exists {
-						match = false
-						break
-					}
-					if f.Operator == "eq" {
-						if fmt.Sprintf("%v", val) != f.Value {
-							match = false
-							break
-						}
-					} else {
-						match = false
-						break
-					}
-				}
-				if !match {
+				rule := filters.NewFilterGroup(filters.AND, false, conditions...)
+				if !rule.Match(docMap) {
 					continue
 				}
 			}
@@ -364,26 +347,6 @@ func (kv *KVStore) Paginate(docs []Document, page, pageSize int) []Document {
 		end = len(docs)
 	}
 	return docs[start:end]
-}
-
-func (kv *KVStore) QueryDocuments(query string, queryType string) []Document {
-	if queryType == "prefix" {
-		kv.memtableLock.RLock()
-		var results []Document
-		for key, doc := range kv.memtable {
-			if strings.HasPrefix(key, query) {
-				results = append(results, doc)
-			}
-		}
-		kv.memtableLock.RUnlock()
-		sort.Slice(results, func(i, j int) bool {
-			return results[i].Key < results[j].Key
-		})
-		return results
-	} else if queryType == "fuzzy" {
-		return kv.Search(query)
-	}
-	return nil
 }
 
 func (kv *KVStore) compactionLoop() {
@@ -466,145 +429,34 @@ func (kv *KVStore) TermQuery(term string) []Document {
 	return results
 }
 
-func (kv *KVStore) PhraseQuery(phrase string) []Document {
-	tokens := tokenize(phrase)
-	if len(tokens) == 0 {
-		return nil
-	}
-	kv.indexLock.RLock()
-	candidateDocs, exists := kv.invertedIndex[tokens[0]]
-	kv.indexLock.RUnlock()
-	if !exists {
-		return nil
-	}
-	var results []Document
-	kv.memtableLock.RLock()
-	defer kv.memtableLock.RUnlock()
-	for docKey, positions := range candidateDocs {
-		doc, ok := kv.memtable[docKey]
-		if !ok {
-			continue
+func toString(val any) string {
+	switch val := val.(type) {
+	case string:
+		return val
+	case []byte:
+		return string(val)
+	case int, int32, int64, int8, int16, uint, uint32, uint64, uint8, uint16:
+		return fmt.Sprintf("%d", val)
+	case float32:
+		buf := make([]byte, 0, 32)
+		buf = strconv.AppendFloat(buf, float64(val), 'f', -1, 64)
+		return string(buf)
+	case float64:
+		buf := make([]byte, 0, 32)
+		buf = strconv.AppendFloat(buf, val, 'f', -1, 64)
+		return string(buf)
+	case bool:
+		if val {
+			return "true"
 		}
-		text := documentValueToString(doc.Value)
-		docTokens := tokenize(text)
-		found := false
-		for _, pos := range positions {
-			if pos+len(tokens) > len(docTokens) {
-				continue
-			}
-			match := true
-			for i := 0; i < len(tokens); i++ {
-				if docTokens[pos+i] != tokens[i] {
-					match = false
-					break
-				}
-			}
-			if match {
-				found = true
-				break
-			}
-		}
-		if found {
-			results = append(results, doc)
-		}
+		return "false"
+	default:
+		return fmt.Sprintf("%v", val)
 	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Key < results[j].Key
-	})
-	return results
+
 }
 
-func (kv *KVStore) BooleanQuery(must, should, mustNot []string) []Document {
-	getDocsForTerm := func(term string) map[string]struct{} {
-		res := make(map[string]struct{})
-		results := kv.TermQuery(term)
-		for _, doc := range results {
-			res[doc.Key] = struct{}{}
-		}
-		return res
-	}
-
-	candidate := make(map[string]struct{})
-	initialized := false
-
-	for _, term := range must {
-		docSet := getDocsForTerm(term)
-		if !initialized {
-			candidate = docSet
-			initialized = true
-		} else {
-			for key := range candidate {
-				if _, ok := docSet[key]; !ok {
-					delete(candidate, key)
-				}
-			}
-		}
-	}
-
-	if !initialized {
-		kv.memtableLock.RLock()
-		for key := range kv.memtable {
-			candidate[key] = struct{}{}
-		}
-		kv.memtableLock.RUnlock()
-	}
-
-	if len(should) > 0 {
-		shouldCandidate := make(map[string]struct{})
-		for _, term := range should {
-			for key := range getDocsForTerm(term) {
-				shouldCandidate[key] = struct{}{}
-			}
-		}
-		for key := range candidate {
-			if _, ok := shouldCandidate[key]; !ok {
-				delete(candidate, key)
-			}
-		}
-	}
-
-	for _, term := range mustNot {
-		for key := range getDocsForTerm(term) {
-			delete(candidate, key)
-		}
-	}
-
-	var results []Document
-	kv.memtableLock.RLock()
-	for key := range candidate {
-		if doc, ok := kv.memtable[key]; ok {
-			results = append(results, doc)
-		}
-	}
-	kv.memtableLock.RUnlock()
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Key < results[j].Key
-	})
-	return results
-}
-
-func (kv *KVStore) RegexQuery(pattern string) []Document {
-	r, err := regexp.Compile(pattern)
-	if err != nil {
-		fmt.Println("Invalid regex pattern:", err)
-		return nil
-	}
-	kv.memtableLock.RLock()
-	defer kv.memtableLock.RUnlock()
-	var results []Document
-	for _, doc := range kv.memtable {
-		text := documentValueToString(doc.Value)
-		if r.MatchString(text) {
-			results = append(results, doc)
-		}
-	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Key < results[j].Key
-	})
-	return results
-}
-
-func (kv *KVStore) LoadFromJSONFile(filename string) error {
+func (kv *KVStore) LoadFromJSONFile(filename, keyField string) error {
 	file, err := os.Open(filename)
 	if err != nil {
 		return err
@@ -617,15 +469,14 @@ func (kv *KVStore) LoadFromJSONFile(filename string) error {
 	}
 	for _, m := range rawDocs {
 		var key string
-		if id, ok := m["id"]; ok {
-			key = fmt.Sprintf("%v", id)
+		if id, ok := m[keyField]; ok {
+			key = toString(id)
 		} else {
-			key = fmt.Sprintf("%d", time.Now().UnixNano())
+			key = fmt.Sprintf("%s", xid.New().String())
 		}
 		doc := Document{
-			Key:       key,
-			Value:     m,
-			Timestamp: time.Now().UnixNano(),
+			Key:   key,
+			Value: m,
 		}
 		kv.memtableLock.Lock()
 		kv.memtable[doc.Key] = doc
@@ -634,12 +485,6 @@ func (kv *KVStore) LoadFromJSONFile(filename string) error {
 		kv.indexDocument(doc)
 	}
 	return nil
-}
-
-type Filter struct {
-	Field    string
-	Operator string
-	Value    string
 }
 
 func main() {
@@ -651,7 +496,7 @@ func main() {
 	}
 	defer store.Close()
 	start := time.Now()
-	err = store.LoadFromJSONFile("charge_master.json")
+	err = store.LoadFromJSONFile("charge_master.json", "id")
 	if err != nil {
 		fmt.Println("Error loading from JSON file:", err)
 	} else {
@@ -659,16 +504,21 @@ func main() {
 	}
 	fmt.Println("Time to load JSON data:", time.Since(start))
 	term := "33965F"
-	termResults := store.TermQuery(term)
+	start = time.Now()
+	termResults := store.TermQuery("32219559")
+	fmt.Println("Time to perform TermQuery:", time.Since(start))
 	fmt.Printf("\nTermQuery Results (term: \"%s\"):\n", term)
 	for _, d := range termResults {
 		fmt.Printf("Key: %s, Value: %s\n", d.Key, documentValueToString(d.Value))
 	}
-	filters := []Filter{
-		{Field: "work_item_id", Operator: "eq", Value: "324"},
-	}
+	var conditions []filters.Condition
+	conditions = append(conditions, &filters.Filter{
+		Field:    "work_item_id",
+		Operator: filters.Equal,
+		Value:    324,
+	})
 	start = time.Now()
-	advancedResults := store.Search("33965F", filters...)
+	advancedResults := store.Search("33965F", conditions...)
 	fmt.Printf("\nAdvancedQuery Results (keyword: \"33965F\", filter: field1 eq 'val'):\n")
 	for _, d := range advancedResults {
 		fmt.Printf("Key: %s, Value: %s\n", d.Key, documentValueToString(d.Value))

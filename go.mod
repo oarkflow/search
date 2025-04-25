@@ -3,6 +3,7 @@ module github.com/oarkflow/search
 go 1.24.2
 
 require (
+	github.com/edsrzf/mmap-go v1.2.0
 	github.com/goccy/go-reflect v1.2.0
 	github.com/oarkflow/date v0.0.4
 	github.com/oarkflow/filters v0.0.35

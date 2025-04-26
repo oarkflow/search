@@ -90,6 +90,7 @@ type Index struct {
 	AvgDocLength       float64
 	indexingInProgress bool
 	numWorkers         int
+	searchCache        map[string][]ScoredDoc
 }
 
 type IndexRequest struct {
@@ -107,11 +108,12 @@ func WithNumOfWorkers(numOfWorkers int) Options {
 
 func NewIndex(id string, opts ...Options) *Index {
 	index := &Index{
-		ID:         id,
-		numWorkers: runtime.NumCPU(),
-		Index:      make(map[string][]Posting),
-		DocLengths: make(map[int]int),
-		Documents:  make(map[int]GenericRecord),
+		ID:          id,
+		numWorkers:  runtime.NumCPU(),
+		Index:       make(map[string][]Posting),
+		DocLengths:  make(map[int]int),
+		Documents:   make(map[int]GenericRecord),
+		searchCache: make(map[string][]ScoredDoc),
 	}
 	for _, opt := range opts {
 		opt(index)
@@ -251,6 +253,7 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 		index.Unlock()
 		return fmt.Errorf("indexing already in progress")
 	}
+	index.searchCache = make(map[string][]ScoredDoc)
 	index.indexingInProgress = true
 	index.Unlock()
 	defer func() {
@@ -258,44 +261,73 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 		index.indexingInProgress = false
 		index.Unlock()
 	}()
+	type partialIndex struct {
+		docs      map[int]GenericRecord
+		lengths   map[int]int
+		inverted  map[string][]Posting
+		totalDocs int
+	}
+	piCh := make(chan partialIndex, index.numWorkers)
+	jobs := make(chan job, len(records))
 	var wg sync.WaitGroup
-	ch := make(chan job, len(records))
 	for i := 0; i < index.numWorkers; i++ {
 		wg.Add(1)
 		go func() {
-			defer wg.Done()
-			for j := range ch {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					freq := j.rec.getFrequency()
-					index.Lock()
-					index.indexDoc(j, freq)
-					index.TotalDocs++
-					index.Unlock()
-
-					for _, cb := range callbacks {
-						if err := cb(j.rec); err != nil {
-							log.Printf("callback error: %v", err)
-						}
+			local := partialIndex{
+				docs:     make(map[int]GenericRecord),
+				lengths:  make(map[int]int),
+				inverted: make(map[string][]Posting),
+			}
+			defer func() {
+				piCh <- local
+				wg.Done()
+			}()
+			for j := range jobs {
+				local.docs[j.id] = j.rec
+				freq := j.rec.getFrequency()
+				docLen := 0
+				for term, count := range freq {
+					local.inverted[term] = append(local.inverted[term], Posting{DocID: j.id, Frequency: count})
+					docLen += count
+				}
+				local.lengths[j.id] = docLen
+				local.totalDocs++
+				for _, cb := range callbacks {
+					if err := cb(j.rec); err != nil {
+						log.Printf("callback error: %v", err)
 					}
 				}
 			}
 		}()
 	}
-
-	for i, rec := range records {
+	docID := 0
+	for _, rec := range records {
 		select {
 		case <-ctx.Done():
 			break
 		default:
-			ch <- job{i + 1, rec}
+			docID++
+			jobs <- job{id: docID, rec: rec}
 		}
 	}
-	close(ch)
+	close(jobs)
 	wg.Wait()
+	close(piCh)
+	index.Lock()
+	for part := range piCh {
+		for id, rec := range part.docs {
+			index.Documents[id] = rec
+		}
+		for id, length := range part.lengths {
+			index.DocLengths[id] = length
+		}
+		for term, postings := range part.inverted {
+			index.Index[term] = append(index.Index[term], postings...)
+		}
+		index.TotalDocs += part.totalDocs
+	}
 	index.update()
+	index.Unlock()
 	return nil
 }
 
@@ -374,9 +406,14 @@ type BM25 struct {
 
 var defaultBM25 = BM25{K: 1.2, B: 0.75}
 
-// Search remove queryText and extract tokens from q if implemented.
 func (index *Index) Search(ctx context.Context, q Query, bm ...BM25) ([]ScoredDoc, error) {
+	queryTokens := q.Tokens()
+	key := strings.Join(queryTokens, " ")
 	index.RLock()
+	if res, found := index.searchCache[key]; found {
+		index.RUnlock()
+		return res, nil
+	}
 	if index.indexingInProgress {
 		index.RUnlock()
 		return nil, fmt.Errorf("indexing in progress; please try again later")
@@ -386,13 +423,12 @@ func (index *Index) Search(ctx context.Context, q Query, bm ...BM25) ([]ScoredDo
 	if len(bm) > 0 {
 		params = bm[0]
 	}
-	queryTokens := q.Tokens()
-	docIDs := q.Evaluate(index)
 	var (
 		scored []ScoredDoc
 		wg     sync.WaitGroup
 		mu     sync.Mutex
 	)
+	docIDs := q.Evaluate(index)
 	ch := make(chan int, len(docIDs))
 	for _, id := range docIDs {
 		ch <- id
@@ -419,6 +455,9 @@ func (index *Index) Search(ctx context.Context, q Query, bm ...BM25) ([]ScoredDo
 	sort.Slice(scored, func(i, j int) bool {
 		return scored[i].Score > scored[j].Score
 	})
+	index.Lock()
+	index.searchCache[key] = scored
+	index.Unlock()
 	return scored, nil
 }
 
@@ -436,22 +475,23 @@ func Paginate(docs []ScoredDoc, page, perPage int) []ScoredDoc {
 
 func (index *Index) AddDocument(rec GenericRecord) {
 	index.Lock()
-	defer index.Unlock()
+	index.searchCache = make(map[string][]ScoredDoc)
 	docID := index.TotalDocs + 1
 	j := job{id: docID, rec: rec}
 	freq := rec.getFrequency()
 	index.indexDoc(j, freq)
 	index.TotalDocs++
 	index.update()
+	index.Unlock()
 }
 
 func (index *Index) UpdateDocument(docID int, rec GenericRecord) error {
 	index.Lock()
-	defer index.Unlock()
+	index.searchCache = make(map[string][]ScoredDoc)
 	if _, ok := index.Documents[docID]; !ok {
+		index.Unlock()
 		return fmt.Errorf("document %d does not exist", docID)
 	}
-
 	oldRec := index.Documents[docID]
 	oldFreq := oldRec.getFrequency()
 	for term, count := range oldFreq {
@@ -462,7 +502,6 @@ func (index *Index) UpdateDocument(docID int, rec GenericRecord) error {
 		}
 		index.DocLengths[docID] -= count
 	}
-
 	index.Documents[docID] = rec
 	newFreq := rec.getFrequency()
 	docLen := 0
@@ -472,18 +511,20 @@ func (index *Index) UpdateDocument(docID int, rec GenericRecord) error {
 			posting = append(posting, Posting{DocID: docID, Frequency: count})
 			index.Index[term] = posting
 		} else {
-			index.Index[term] = []Posting{{DocID: count}}
+			index.Index[term] = []Posting{{DocID: docID, Frequency: count}}
 		}
 	}
 	index.DocLengths[docID] = docLen
 	index.update()
+	index.Unlock()
 	return nil
 }
 
 func (index *Index) DeleteDocument(docID int) error {
 	index.Lock()
-	defer index.Unlock()
+	index.searchCache = make(map[string][]ScoredDoc)
 	if _, ok := index.Documents[docID]; !ok {
+		index.Unlock()
 		return fmt.Errorf("document %d does not exist", docID)
 	}
 	rec := index.Documents[docID]
@@ -499,6 +540,7 @@ func (index *Index) DeleteDocument(docID int) error {
 	delete(index.DocLengths, docID)
 	index.TotalDocs--
 	index.update()
+	index.Unlock()
 	return nil
 }
 

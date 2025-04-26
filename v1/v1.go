@@ -1,4 +1,3 @@
-// Filename: search_index.go
 package v1
 
 import (
@@ -58,16 +57,6 @@ func (rec GenericRecord) getFrequency() map[string]int {
 		freq[t]++
 	}
 	return freq
-}
-
-type job struct {
-	id  int
-	rec GenericRecord
-}
-type result struct {
-	id   int
-	rec  GenericRecord
-	freq map[string]int
 }
 
 type Posting struct {
@@ -133,6 +122,13 @@ func (index *Index) FuzzySearch(term string, threshold int) []string {
 	return results
 }
 
+type partialIndex struct {
+	docs      map[int]GenericRecord
+	lengths   map[int]int
+	inverted  map[string][]Posting
+	totalDocs int
+}
+
 func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks ...func(v GenericRecord) error) error {
 	index.Lock()
 	if index.indexingInProgress {
@@ -140,6 +136,7 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 		return fmt.Errorf("indexing already in progress")
 	}
 	index.indexingInProgress = true
+	index.searchCache = make(map[string][]ScoredDoc)
 	index.Unlock()
 	defer func() {
 		index.Lock()
@@ -152,26 +149,46 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 	if err != nil || token != json.Delim('[') {
 		return fmt.Errorf("invalid JSON array")
 	}
-	jobs := make(chan job, 100)
-	results := make(chan result, 100)
+	jobs := make(chan GenericRecord, 50)
+	partialCh := make(chan partialIndex, index.numWorkers)
 	var wg sync.WaitGroup
-	for i := 0; i < index.numWorkers; i++ {
+	for w := 0; w < index.numWorkers; w++ {
 		wg.Add(1)
-		go func() {
+		go func(workerID int) {
 			defer wg.Done()
-			for j := range jobs {
+			partial := partialIndex{
+				docs:     make(map[int]GenericRecord),
+				lengths:  make(map[int]int),
+				inverted: make(map[string][]Posting),
+			}
+			var localID int
+			for rec := range jobs {
 				select {
 				case <-ctx.Done():
 					return
 				default:
-					freq := j.rec.getFrequency()
-					results <- result{id: j.id, rec: j.rec, freq: freq}
+					localID++
+					docID := workerID*100000 + localID
+					partial.docs[docID] = rec
+					freq := rec.getFrequency()
+					docLen := 0
+					for term, count := range freq {
+						partial.inverted[term] = append(partial.inverted[term], Posting{DocID: docID, Frequency: count})
+						docLen += count
+					}
+					partial.lengths[docID] = docLen
+					partial.totalDocs++
+					for _, cb := range callbacks {
+						if err := cb(rec); err != nil {
+							log.Printf("callback error: %v", err)
+						}
+					}
 				}
 			}
-		}()
+			partialCh <- partial
+		}(w)
 	}
 	go func() {
-		docID := 0
 		for decoder.More() {
 			select {
 			case <-ctx.Done():
@@ -182,29 +199,27 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 					log.Printf("Skipping invalid record: %v", err)
 					continue
 				}
-				docID++
-				jobs <- job{id: docID, rec: rec}
+				jobs <- rec
 			}
 		}
 		close(jobs)
 	}()
 	go func() {
 		wg.Wait()
-		close(results)
+		close(partialCh)
 	}()
-	var allResults []result
-	for res := range results {
-		allResults = append(allResults, res)
-		for _, cb := range callbacks {
-			if err := cb(res.rec); err != nil {
-				log.Printf("callback error: %v", err)
-			}
-		}
-	}
 	index.Lock()
-	for _, res := range allResults {
-		index.indexDoc(job{id: res.id, rec: res.rec}, res.freq)
-		index.TotalDocs++
+	for part := range partialCh {
+		for id, rec := range part.docs {
+			index.Documents[id] = rec
+		}
+		for id, length := range part.lengths {
+			index.DocLengths[id] = length
+		}
+		for term, postings := range part.inverted {
+			index.Index[term] = append(index.Index[term], postings...)
+		}
+		index.TotalDocs += part.totalDocs
 	}
 	index.update()
 	index.Unlock()
@@ -257,8 +272,8 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 		index.Unlock()
 		return fmt.Errorf("indexing already in progress")
 	}
-	index.searchCache = make(map[string][]ScoredDoc)
 	index.indexingInProgress = true
+	index.searchCache = make(map[string][]ScoredDoc)
 	index.Unlock()
 	defer func() {
 		index.Lock()
@@ -271,54 +286,58 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 		inverted  map[string][]Posting
 		totalDocs int
 	}
-	piCh := make(chan partialIndex, index.numWorkers)
-	jobs := make(chan job, len(records))
+	jobs := make(chan GenericRecord, 50)
+	partialCh := make(chan partialIndex, index.numWorkers)
 	var wg sync.WaitGroup
-	for i := 0; i < index.numWorkers; i++ {
+	for w := 0; w < index.numWorkers; w++ {
 		wg.Add(1)
-		go func() {
-			local := partialIndex{
+		go func(workerID int) {
+			defer wg.Done()
+			partial := partialIndex{
 				docs:     make(map[int]GenericRecord),
 				lengths:  make(map[int]int),
 				inverted: make(map[string][]Posting),
 			}
-			defer func() {
-				piCh <- local
-				wg.Done()
-			}()
-			for j := range jobs {
-				local.docs[j.id] = j.rec
-				freq := j.rec.getFrequency()
+			var localID int
+			for rec := range jobs {
+				localID++
+
+				docID := workerID*100000 + localID
+				partial.docs[docID] = rec
+				freq := rec.getFrequency()
 				docLen := 0
 				for term, count := range freq {
-					local.inverted[term] = append(local.inverted[term], Posting{DocID: j.id, Frequency: count})
+					partial.inverted[term] = append(partial.inverted[term], Posting{DocID: docID, Frequency: count})
 					docLen += count
 				}
-				local.lengths[j.id] = docLen
-				local.totalDocs++
+				partial.lengths[docID] = docLen
+				partial.totalDocs++
 				for _, cb := range callbacks {
-					if err := cb(j.rec); err != nil {
+					if err := cb(rec); err != nil {
 						log.Printf("callback error: %v", err)
 					}
 				}
 			}
-		}()
+			partialCh <- partial
+		}(w)
 	}
-	docID := 0
-	for _, rec := range records {
-		select {
-		case <-ctx.Done():
-			break
-		default:
-			docID++
-			jobs <- job{id: docID, rec: rec}
+	go func() {
+		for _, rec := range records {
+			select {
+			case <-ctx.Done():
+				break
+			default:
+				jobs <- rec
+			}
 		}
-	}
-	close(jobs)
-	wg.Wait()
-	close(piCh)
+		close(jobs)
+	}()
+	go func() {
+		wg.Wait()
+		close(partialCh)
+	}()
 	index.Lock()
-	for part := range piCh {
+	for part := range partialCh {
 		for id, rec := range part.docs {
 			index.Documents[id] = rec
 		}
@@ -355,14 +374,14 @@ func (index *Index) BuildFromStruct(ctx context.Context, slice any, callbacks ..
 	return index.BuildFromRecords(ctx, records, callbacks...)
 }
 
-func (index *Index) indexDoc(r job, freq map[string]int) {
-	index.Documents[r.id] = r.rec
+func (index *Index) indexDoc(docID int, rec GenericRecord, freq map[string]int) {
+	index.Documents[docID] = rec
 	docLen := 0
 	for t, count := range freq {
-		index.Index[t] = append(index.Index[t], Posting{DocID: r.id, Frequency: count})
+		index.Index[t] = append(index.Index[t], Posting{DocID: docID, Frequency: count})
 		docLen += count
 	}
-	index.DocLengths[r.id] = docLen
+	index.DocLengths[docID] = docLen
 }
 
 func (index *Index) update() {
@@ -486,9 +505,8 @@ func (index *Index) AddDocument(rec GenericRecord) {
 	index.Lock()
 	index.searchCache = make(map[string][]ScoredDoc)
 	docID := index.TotalDocs + 1
-	j := job{id: docID, rec: rec}
 	freq := rec.getFrequency()
-	index.indexDoc(j, freq)
+	index.indexDoc(docID, rec, freq)
 	index.TotalDocs++
 	index.update()
 	index.Unlock()
@@ -501,27 +519,32 @@ func (index *Index) UpdateDocument(docID int, rec GenericRecord) error {
 		index.Unlock()
 		return fmt.Errorf("document %d does not exist", docID)
 	}
+
 	oldRec := index.Documents[docID]
 	oldFreq := oldRec.getFrequency()
-	for term, count := range oldFreq {
-		if posting, exists := index.Index[term]; exists {
-			if len(posting) == 0 {
+	for term := range oldFreq {
+
+		if postings, exists := index.Index[term]; exists {
+			newPostings := postings[:0]
+			for _, p := range postings {
+				if p.DocID != docID {
+					newPostings = append(newPostings, p)
+				}
+			}
+			if len(newPostings) == 0 {
 				delete(index.Index, term)
+			} else {
+				index.Index[term] = newPostings
 			}
 		}
-		index.DocLengths[docID] -= count
+		index.DocLengths[docID] -= oldFreq[term]
 	}
 	index.Documents[docID] = rec
 	newFreq := rec.getFrequency()
 	docLen := 0
 	for term, count := range newFreq {
 		docLen += count
-		if posting, exists := index.Index[term]; exists {
-			posting = append(posting, Posting{DocID: docID, Frequency: count})
-			index.Index[term] = posting
-		} else {
-			index.Index[term] = []Posting{{DocID: docID, Frequency: count}}
-		}
+		index.Index[term] = append(index.Index[term], Posting{DocID: docID, Frequency: count})
 	}
 	index.DocLengths[docID] = docLen
 	index.update()
@@ -539,9 +562,17 @@ func (index *Index) DeleteDocument(docID int) error {
 	rec := index.Documents[docID]
 	freq := rec.getFrequency()
 	for term := range freq {
-		if posting, exists := index.Index[term]; exists {
-			if len(posting) == 0 {
+		if postings, exists := index.Index[term]; exists {
+			newPostings := postings[:0]
+			for _, p := range postings {
+				if p.DocID != docID {
+					newPostings = append(newPostings, p)
+				}
+			}
+			if len(newPostings) == 0 {
 				delete(index.Index, term)
+			} else {
+				index.Index[term] = newPostings
 			}
 		}
 	}

@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oarkflow/filters"
 	"github.com/oarkflow/json/jsonmap"
 )
 
@@ -44,7 +45,7 @@ type SortField struct {
 }
 
 type SearchOptions struct {
-	Queries    []Query
+	Queries    []filters.Filter
 	SortFields []SortField
 	Page       int
 	PerPage    int
@@ -287,81 +288,32 @@ func (s *JSONLineStore) Search(term string) ([]json.RawMessage, error) {
 	return s.readRecords(recs)
 }
 
-func (s *JSONLineStore) SearchQueries(queries ...Query) ([]json.RawMessage, error) {
+func (s *JSONLineStore) SearchQueries(queries ...filters.Filter) ([]json.RawMessage, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var results []map[int]struct{}
-	for _, q := range queries {
-		set := make(map[int]struct{})
-		switch q.Operator {
-		case "=":
-			valStr := fmt.Sprintf("%v", q.Value)
-			for _, r := range s.fieldEqIndex[q.Field][valStr] {
-				set[r] = struct{}{}
-			}
-		case "!=":
-			match := make(map[int]struct{})
-			valStr := fmt.Sprintf("%v", q.Value)
-			for _, r := range s.fieldEqIndex[q.Field][valStr] {
-				match[r] = struct{}{}
-			}
-			for _, recs := range s.fieldEqIndex[q.Field] {
-				for _, r := range recs {
-					if _, found := match[r]; !found {
-						set[r] = struct{}{}
-					}
-				}
-			}
-		case ">", ">=", "<", "<=":
-			numVal, err := toFloat64(q.Value)
-			if err != nil {
-				return nil, fmt.Errorf("value for range query must be numeric: %v", q.Value)
-			}
-			entries := s.fieldNumIndex[q.Field]
-			var start, end int
-			switch q.Operator {
-			case ">":
-				start = sort.Search(len(entries), func(i int) bool {
-					return entries[i].Value > numVal
-				})
-				end = len(entries)
-			case ">=":
-				start = sort.Search(len(entries), func(i int) bool {
-					return entries[i].Value >= numVal
-				})
-				end = len(entries)
-			case "<":
-				start = 0
-				end = sort.Search(len(entries), func(i int) bool {
-					return entries[i].Value >= numVal
-				})
-			case "<=":
-				start = 0
-				end = sort.Search(len(entries), func(i int) bool {
-					return entries[i].Value > numVal
-				})
-			}
-			for i := start; i < end; i++ {
-				set[entries[i].Idx] = struct{}{}
-			}
-		default:
-			return nil, fmt.Errorf("unsupported operator %q", q.Operator)
+	var resultIndices []int
+	for i := range s.offsets {
+		recs, err := s.readRecords([]int{i})
+		if err != nil || len(recs) == 0 {
+			continue
 		}
-		results = append(results, set)
-	}
-	final := results[0]
-	for _, s2 := range results[1:] {
-		final = intersect(final, s2)
-		if len(final) == 0 {
-			break
+		var m map[string]any
+		if err := json.Unmarshal(recs[0], &m); err != nil {
+			continue
+		}
+		matchAll := true
+		for _, f := range queries {
+			if !f.Match(m) {
+				matchAll = false
+				break
+			}
+		}
+		if matchAll {
+			resultIndices = append(resultIndices, i)
 		}
 	}
-	var recIndices []int
-	for idx := range final {
-		recIndices = append(recIndices, idx)
-	}
-	sort.Ints(recIndices)
-	return s.readRecords(recIndices)
+	sort.Ints(resultIndices)
+	return s.readRecords(resultIndices)
 }
 
 func (s *JSONLineStore) SearchWithOptions(opts SearchOptions) ([]json.RawMessage, error) {
@@ -369,70 +321,29 @@ func (s *JSONLineStore) SearchWithOptions(opts SearchOptions) ([]json.RawMessage
 	defer s.mu.RUnlock()
 	var recIndices []int
 	if len(opts.Queries) > 0 {
-		sets := make([]map[int]struct{}, 0, len(opts.Queries))
-		for _, q := range opts.Queries {
-			set := make(map[int]struct{})
-			switch q.Operator {
-			case "=":
-				valStr := fmt.Sprintf("%v", q.Value)
-				for _, r := range s.fieldEqIndex[q.Field][valStr] {
-					set[r] = struct{}{}
-				}
-			case "!=":
-				match := make(map[int]struct{})
-				valStr := fmt.Sprintf("%v", q.Value)
-				for _, r := range s.fieldEqIndex[q.Field][valStr] {
-					match[r] = struct{}{}
-				}
-				for _, recs := range s.fieldEqIndex[q.Field] {
-					for _, r := range recs {
-						if _, found := match[r]; !found {
-							set[r] = struct{}{}
-						}
-					}
-				}
-			case ">", ">=", "<", "<=":
-				numVal, err := toFloat64(q.Value)
-				if err != nil {
-					return nil, fmt.Errorf("value for range query must be numeric: %v", q.Value)
-				}
-				entries := s.fieldNumIndex[q.Field]
-				var start, end int
-				switch q.Operator {
-				case ">":
-					start = sort.Search(len(entries), func(i int) bool {
-						return entries[i].Value > numVal
-					})
-					end = len(entries)
-				case ">=":
-					start = sort.Search(len(entries), func(i int) bool {
-						return entries[i].Value >= numVal
-					})
-					end = len(entries)
-				case "<":
-					start = 0
-					end = sort.Search(len(entries), func(i int) bool {
-						return entries[i].Value >= numVal
-					})
-				case "<=":
-					start = 0
-					end = sort.Search(len(entries), func(i int) bool {
-						return entries[i].Value > numVal
-					})
-				}
-				for i := start; i < end; i++ {
-					set[entries[i].Idx] = struct{}{}
+		for i := range s.offsets {
+			recs, err := s.readRecords([]int{i})
+			if err != nil || len(recs) == 0 {
+				continue
+			}
+			var m map[string]any
+			if err := jsonmap.Unmarshal(recs[0], &m); err != nil {
+				continue
+			}
+			matchAll := true
+			for _, f := range opts.Queries {
+				if !f.Match(m) {
+					matchAll = false
+					break
 				}
 			}
-			sets = append(sets, set)
-		}
-		final := intersectAll(sets)
-		for idx := range final {
-			recIndices = append(recIndices, idx)
+			if matchAll {
+				recIndices = append(recIndices, i)
+			}
 		}
 	} else {
 		recIndices = make([]int, len(s.offsets))
-		for i := range recIndices {
+		for i := range s.offsets {
 			recIndices[i] = i
 		}
 	}
@@ -771,10 +682,10 @@ func main() {
 	for _, r := range raws {
 		fmt.Printf("Found (token %s): %s\n", term, string(r))
 	}
-	queries := []Query{
-		{Field: "is_active", Operator: "=", Value: true},
-		{Field: "cpt_hcpcs_code", Operator: "=", Value: "G0365"},
-		{Field: "charge_type", Operator: "=", Value: "ED_FACILITY"},
+	queries := []filters.Filter{
+		{Field: "is_active", Operator: filters.Equal, Value: true},
+		{Field: "cpt_hcpcs_code", Operator: filters.Equal, Value: "G0365"},
+		{Field: "charge_type", Operator: filters.Equal, Value: "ED_FACILITY"},
 	}
 	start = time.Now()
 	options := SearchOptions{

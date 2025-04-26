@@ -14,14 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/oarkflow/filters"
 	"github.com/oarkflow/xid"
-)
-
-const (
-	bloomSize = 1 << 16
-	k1        = 1.5
-	b         = 0.75
 )
 
 type Document struct {
@@ -89,8 +82,9 @@ type KVStore struct {
 	bloom           *BloomFilter
 	writeCounter    int64
 	writeCounterMux sync.Mutex
-	invertedIndex   map[string]map[string][]int
-	indexLock       sync.RWMutex
+
+	invertedIndex map[string]map[string][]int
+	indexLock     sync.RWMutex
 }
 
 func NewKVStore(dir string) (*KVStore, error) {
@@ -114,10 +108,9 @@ func NewKVStore(dir string) (*KVStore, error) {
 		walFile:        walFile,
 		valueLogFile:   valLog,
 		stopCompaction: make(chan struct{}),
-		bloom:          NewBloomFilter(bloomSize),
+		bloom:          NewBloomFilter(1 << 16),
 		invertedIndex:  make(map[string]map[string][]int),
 	}
-
 	store.loadWAL()
 	store.compactionWG.Add(1)
 	go store.compactionLoop()
@@ -183,7 +176,6 @@ func (kv *KVStore) writeWAL(doc Document) error {
 	kv.writeCounter++
 	counter := kv.writeCounter
 	kv.writeCounterMux.Unlock()
-
 	if counter%10 == 0 {
 		if err := kv.walFile.Sync(); err != nil {
 			return err
@@ -196,11 +188,7 @@ func (kv *KVStore) writeValueLog(doc Document) error {
 	kv.valueLogLock.Lock()
 	defer kv.valueLogLock.Unlock()
 	enc := gob.NewEncoder(kv.valueLogFile)
-	err := enc.Encode(doc)
-	if err != nil {
-		return err
-	}
-	return nil
+	return enc.Encode(doc)
 }
 
 func tokenize(text string) []string {
@@ -227,7 +215,6 @@ func (kv *KVStore) removeFromIndex(doc Document) {
 	for token, docMap := range kv.invertedIndex {
 		if _, exists := docMap[doc.Key]; exists {
 			delete(docMap, doc.Key)
-
 			if len(docMap) == 0 {
 				delete(kv.invertedIndex, token)
 			}
@@ -307,27 +294,20 @@ func (kv *KVStore) AddDocuments(docs []Document) error {
 	return kv.walFile.Sync()
 }
 
-func (kv *KVStore) Search(query string, conditions ...filters.Condition) []Document {
+func (kv *KVStore) Get(term string) []Document {
+	term = strings.ToLower(term)
+	kv.indexLock.RLock()
+	docMap, exists := kv.invertedIndex[term]
+	kv.indexLock.RUnlock()
+	if !exists {
+		fmt.Printf("Token %s not found in index.\n", term)
+		return nil
+	}
 	kv.memtableLock.RLock()
 	defer kv.memtableLock.RUnlock()
 	var results []Document
-	lQuery := strings.ToLower(query)
-	for key, doc := range kv.memtable {
-		if !kv.bloom.Test(key) {
-			continue
-		}
-		text := documentValueToString(doc.Value)
-		if strings.Contains(strings.ToLower(key), lQuery) || strings.Contains(strings.ToLower(text), lQuery) {
-			if len(conditions) > 0 {
-				docMap, ok := doc.Value.(map[string]any)
-				if !ok {
-					continue
-				}
-				rule := filters.NewFilterGroup(filters.AND, false, conditions...)
-				if !rule.Match(docMap) {
-					continue
-				}
-			}
+	for docKey := range docMap {
+		if doc, ok := kv.memtable[docKey]; ok {
 			results = append(results, doc)
 		}
 	}
@@ -406,29 +386,6 @@ func (kv *KVStore) compactMemtable() {
 	f.Close()
 }
 
-func (kv *KVStore) TermQuery(term string) []Document {
-	term = strings.ToLower(term)
-	kv.indexLock.RLock()
-	docMap, exists := kv.invertedIndex[term]
-	kv.indexLock.RUnlock()
-	if !exists {
-		fmt.Printf("Token %s not found in index.\n", term)
-		return nil
-	}
-	kv.memtableLock.RLock()
-	defer kv.memtableLock.RUnlock()
-	var results []Document
-	for docKey := range docMap {
-		if doc, ok := kv.memtable[docKey]; ok {
-			results = append(results, doc)
-		}
-	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Key < results[j].Key
-	})
-	return results
-}
-
 func toString(val any) string {
 	switch val := val.(type) {
 	case string:
@@ -453,7 +410,6 @@ func toString(val any) string {
 	default:
 		return fmt.Sprintf("%v", val)
 	}
-
 }
 
 func (kv *KVStore) LoadFromJSONFile(filename, keyField string) error {
@@ -472,7 +428,7 @@ func (kv *KVStore) LoadFromJSONFile(filename, keyField string) error {
 		if id, ok := m[keyField]; ok {
 			key = toString(id)
 		} else {
-			key = fmt.Sprintf("%s", xid.New().String())
+			key = xid.New().String()
 		}
 		doc := Document{
 			Key:   key,
@@ -496,7 +452,7 @@ func main() {
 	}
 	defer store.Close()
 	start := time.Now()
-	err = store.LoadFromJSONFile("charge_master.json", "id")
+	err = store.LoadFromJSONFile("charge_master.json", "charge_master_id")
 	if err != nil {
 		fmt.Println("Error loading from JSON file:", err)
 	} else {
@@ -505,23 +461,10 @@ func main() {
 	fmt.Println("Time to load JSON data:", time.Since(start))
 	term := "33965F"
 	start = time.Now()
-	termResults := store.TermQuery("32219559")
-	fmt.Println("Time to perform TermQuery:", time.Since(start))
-	fmt.Printf("\nTermQuery Results (term: \"%s\"):\n", term)
+	termResults := store.Get("32219")
+	fmt.Println("Time to perform Get:", time.Since(start))
+	fmt.Printf("\nGet Results (term: \"%s\"):\n", term)
 	for _, d := range termResults {
 		fmt.Printf("Key: %s, Value: %s\n", d.Key, documentValueToString(d.Value))
 	}
-	var conditions []filters.Condition
-	conditions = append(conditions, &filters.Filter{
-		Field:    "work_item_id",
-		Operator: filters.Equal,
-		Value:    324,
-	})
-	start = time.Now()
-	advancedResults := store.Search("33965F", conditions...)
-	fmt.Printf("\nAdvancedQuery Results (keyword: \"33965F\", filter: field1 eq 'val'):\n")
-	for _, d := range advancedResults {
-		fmt.Printf("Key: %s, Value: %s\n", d.Key, documentValueToString(d.Value))
-	}
-	fmt.Println("Time to perform AdvancedQuery:", time.Since(start))
 }

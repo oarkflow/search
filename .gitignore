@@ -15,5 +15,5 @@ fts-storage
 documentStorage
 *.index
 fts
-*.ndjson
-*.ndjson.*
+*.blk
+*.idx

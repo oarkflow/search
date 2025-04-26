@@ -168,31 +168,31 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 				case <-ctx.Done():
 					return
 				default:
-					localID++
-					docID := workerID*100000 + localID
-					partial.docs[docID] = rec
-					freq := rec.getFrequency()
-					docLen := 0
-					for term, cnt := range freq {
-						partial.inverted[term] = append(partial.inverted[term], Posting{DocID: docID, Frequency: cnt})
-						docLen += cnt
+				}
+				localID++
+				docID := workerID*100000 + localID
+				partial.docs[docID] = rec
+				freq := rec.getFrequency()
+				docLen := 0
+				for term, cnt := range freq {
+					partial.inverted[term] = append(partial.inverted[term], Posting{DocID: docID, Frequency: cnt})
+					docLen += cnt
+				}
+				partial.lengths[docID] = docLen
+				partial.totalDocs++
+				count++
+				if count >= flushThreshold {
+					partialCh <- partial
+					partial = partialIndex{
+						docs:     make(map[int]GenericRecord),
+						lengths:  make(map[int]int),
+						inverted: make(map[string][]Posting),
 					}
-					partial.lengths[docID] = docLen
-					partial.totalDocs++
-					count++
-					if count >= flushThreshold {
-						partialCh <- partial
-						partial = partialIndex{
-							docs:     make(map[int]GenericRecord),
-							lengths:  make(map[int]int),
-							inverted: make(map[string][]Posting),
-						}
-						count = 0
-					}
-					for _, cb := range callbacks {
-						if err := cb(rec); err != nil {
-							log.Printf("callback error: %v", err)
-						}
+					count = 0
+				}
+				for _, cb := range callbacks {
+					if err := cb(rec); err != nil {
+						log.Printf("callback error: %v", err)
 					}
 				}
 			}
@@ -207,34 +207,37 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 			case <-ctx.Done():
 				break
 			default:
-				var rec GenericRecord
-				if err := decoder.Decode(&rec); err != nil {
-					log.Printf("Skipping invalid record: %v", err)
-					continue
-				}
-				jobs <- rec
 			}
+			var rec GenericRecord
+			if err := decoder.Decode(&rec); err != nil {
+				log.Printf("Skipping invalid record: %v", err)
+				continue
+			}
+			jobs <- rec
 		}
 		close(jobs)
 	}()
+	mergerDone := make(chan struct{})
 	go func() {
-		wg.Wait()
-		close(partialCh)
+		for part := range partialCh {
+			index.Lock()
+			for id, rec := range part.docs {
+				index.Documents[id] = rec
+			}
+			for id, length := range part.lengths {
+				index.DocLengths[id] = length
+			}
+			for term, postings := range part.inverted {
+				index.Index[term] = append(index.Index[term], postings...)
+			}
+			index.TotalDocs += part.totalDocs
+			index.Unlock()
+		}
+		close(mergerDone)
 	}()
-	for part := range partialCh {
-		index.Lock()
-		for id, rec := range part.docs {
-			index.Documents[id] = rec
-		}
-		for id, length := range part.lengths {
-			index.DocLengths[id] = length
-		}
-		for term, postings := range part.inverted {
-			index.Index[term] = append(index.Index[term], postings...)
-		}
-		index.TotalDocs += part.totalDocs
-		index.Unlock()
-	}
+	wg.Wait()
+	close(partialCh)
+	<-mergerDone
 	index.Lock()
 	index.update()
 	index.Unlock()
@@ -343,28 +346,33 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 			case <-ctx.Done():
 				break
 			default:
-				jobs <- rec
 			}
+			jobs <- rec
 		}
 		close(jobs)
 	}()
+	mergerDone := make(chan struct{})
 	go func() {
-		wg.Wait()
-		close(partialCh)
+		for part := range partialCh {
+			index.Lock()
+			for id, rec := range part.docs {
+				index.Documents[id] = rec
+			}
+			for id, length := range part.lengths {
+				index.DocLengths[id] = length
+			}
+			for term, postings := range part.inverted {
+				index.Index[term] = append(index.Index[term], postings...)
+			}
+			index.TotalDocs += part.totalDocs
+			index.Unlock()
+		}
+		close(mergerDone)
 	}()
+	wg.Wait()
+	close(partialCh)
+	<-mergerDone
 	index.Lock()
-	for part := range partialCh {
-		for id, rec := range part.docs {
-			index.Documents[id] = rec
-		}
-		for id, length := range part.lengths {
-			index.DocLengths[id] = length
-		}
-		for term, postings := range part.inverted {
-			index.Index[term] = append(index.Index[term], postings...)
-		}
-		index.TotalDocs += part.totalDocs
-	}
 	index.update()
 	index.Unlock()
 	return nil

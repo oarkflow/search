@@ -141,3 +141,126 @@ func BoundedLevenshtein(a, b string, threshold int) int {
 	}
 	return prev[lb]
 }
+
+func Compare(a, b any) int {
+	switch aVal := a.(type) {
+	case int:
+		switch bVal := b.(type) {
+		case int:
+			return aVal - bVal
+		case int32:
+			return aVal - int(bVal)
+		case int64:
+			return int(int64(aVal) - bVal)
+		case float32:
+			return int(float64(aVal) - float64(bVal))
+		case float64:
+			return int(float64(aVal) - bVal)
+		}
+	case int32:
+		switch bVal := b.(type) {
+		case int:
+			return int(aVal) - bVal
+		case int32:
+			return int(aVal - bVal)
+		case int64:
+			return int(int64(aVal) - bVal)
+		case float32:
+			return int(float64(aVal) - float64(bVal))
+		case float64:
+			return int(float64(aVal) - bVal)
+		}
+	case int64:
+		switch bVal := b.(type) {
+		case int:
+			return int(aVal - int64(bVal))
+		case int32:
+			return int(aVal - int64(bVal))
+		case int64:
+			return int(aVal - bVal)
+		case float32:
+			return int(float64(aVal) - float64(bVal))
+		case float64:
+			return int(float64(aVal) - bVal)
+		}
+	case float32:
+		switch bVal := b.(type) {
+		case int:
+			return int(float64(aVal) - float64(bVal))
+		case int32:
+			return int(float64(aVal) - float64(bVal))
+		case int64:
+			return int(float64(aVal) - float64(bVal))
+		case float32:
+			diff := aVal - bVal
+			if diff < 0 {
+				return -1
+			} else if diff > 0 {
+				return 1
+			}
+			return 0
+		case float64:
+			diff := float64(aVal) - bVal
+			if diff < 0 {
+				return -1
+			} else if diff > 0 {
+				return 1
+			}
+			return 0
+		}
+	case float64:
+		switch bVal := b.(type) {
+		case int:
+			diff := aVal - float64(bVal)
+			if diff < 0 {
+				return -1
+			} else if diff > 0 {
+				return 1
+			}
+			return 0
+		case int32:
+			diff := aVal - float64(bVal)
+			if diff < 0 {
+				return -1
+			} else if diff > 0 {
+				return 1
+			}
+			return 0
+		case int64:
+			diff := aVal - float64(bVal)
+			if diff < 0 {
+				return -1
+			} else if diff > 0 {
+				return 1
+			}
+			return 0
+		case float32:
+			diff := aVal - float64(bVal)
+			if diff < 0 {
+				return -1
+			} else if diff > 0 {
+				return 1
+			}
+			return 0
+		case float64:
+			diff := aVal - bVal
+			if diff < 0 {
+				return -1
+			} else if diff > 0 {
+				return 1
+			}
+			return 0
+		}
+	case string:
+		if bVal, ok := b.(string); ok {
+			if aVal < bVal {
+				return -1
+			} else if aVal > bVal {
+				return 1
+			}
+			return 0
+		}
+	}
+
+	panic(fmt.Sprintf("unsupported compare types: %T and %T", a, b))
+}

@@ -73,13 +73,16 @@ func (m *Manager) Search(ctx context.Context, name string, q string) ([]GenericR
 		fmt.Printf("index %s not found\n", name)
 		return nil, fmt.Errorf("index %s not found", name)
 	}
-	results, err := index.Search(ctx, NewTermQuery(q, true, 1))
+	params := SearchParams{
+		Page:    1,
+		PerPage: 10,
+	}
+	results, err := index.Search(ctx, NewTermQuery(q, true, 1), params)
 	if err != nil {
 		return nil, err
 	}
-	paged := Paginate(results, 1, 10)
 	var data []GenericRecord
-	for _, sd := range paged {
+	for _, sd := range results.Results {
 		data = append(data, index.Documents[sd.DocID])
 	}
 	return data, nil

@@ -28,16 +28,23 @@ func main() {
 		Must: []v1.Query{termQ},
 	}
 	startTime = time.Now()
-	scoredDocs, err := index.Search(ctx, boolQ)
+	params := v1.SearchParams{
+		Page:    1,
+		PerPage: 20,
+		SortFields: []v1.SortField{
+			{
+				Field:     "charge_type",
+				Ascending: true,
+			},
+		},
+	}
+	scoredDocs, err := index.Search(ctx, boolQ, params)
 	if err != nil {
 		log.Fatalf("Error searching index: %v", err)
 	}
 	since := time.Since(startTime)
-	page := 1
-	perPage := 10
-	paginatedResults := v1.Paginate(scoredDocs, page, perPage)
-	fmt.Println(fmt.Sprintf("Found %d matching documents (showing page %d): Latency: %s", len(scoredDocs), page, since))
-	for _, sd := range paginatedResults {
+	fmt.Println(fmt.Sprintf("Found %d matching documents (showing page %d): Latency: %s", len(scoredDocs.Results), scoredDocs.Page, since))
+	for _, sd := range scoredDocs.Results {
 		rec := index.Documents[sd.DocID]
 		fmt.Println(fmt.Sprintf("DocID: %d | Score: %.4f | Data: %+v", sd.DocID, sd.Score, rec))
 	}

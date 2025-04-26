@@ -129,6 +129,21 @@ type partialIndex struct {
 	totalDocs int
 }
 
+func (index *Index) mergePartial(partial partialIndex) {
+	index.Lock()
+	for id, rec := range partial.docs {
+		index.Documents[id] = rec
+	}
+	for id, length := range partial.lengths {
+		index.DocLengths[id] = length
+	}
+	for term, postings := range partial.inverted {
+		index.Index[term] = append(index.Index[term], postings...)
+	}
+	index.TotalDocs += partial.totalDocs
+	index.Unlock()
+}
+
 func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks ...func(v GenericRecord) error) error {
 	index.Lock()
 	if index.indexingInProgress {
@@ -145,13 +160,12 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 	}()
 	decoder := json.NewDecoder(r)
 	decoder.UseNumber()
-	token, err := decoder.Token()
-	if err != nil || token != json.Delim('[') {
+	tok, err := decoder.Token()
+	if err != nil || tok != json.Delim('[') {
 		return fmt.Errorf("invalid JSON array")
 	}
 	jobs := make(chan GenericRecord, 50)
-	partialCh := make(chan partialIndex, index.numWorkers*2)
-	const flushThreshold = 1000
+	const flushThreshold = 100
 	var wg sync.WaitGroup
 	for w := 0; w < index.numWorkers; w++ {
 		wg.Add(1)
@@ -182,7 +196,7 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 				partial.totalDocs++
 				count++
 				if count >= flushThreshold {
-					partialCh <- partial
+					index.mergePartial(partial)
 					partial = partialIndex{
 						docs:     make(map[int]GenericRecord),
 						lengths:  make(map[int]int),
@@ -197,7 +211,7 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 				}
 			}
 			if count > 0 {
-				partialCh <- partial
+				index.mergePartial(partial)
 			}
 		}(w)
 	}
@@ -217,27 +231,7 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 		}
 		close(jobs)
 	}()
-	mergerDone := make(chan struct{})
-	go func() {
-		for part := range partialCh {
-			index.Lock()
-			for id, rec := range part.docs {
-				index.Documents[id] = rec
-			}
-			for id, length := range part.lengths {
-				index.DocLengths[id] = length
-			}
-			for term, postings := range part.inverted {
-				index.Index[term] = append(index.Index[term], postings...)
-			}
-			index.TotalDocs += part.totalDocs
-			index.Unlock()
-		}
-		close(mergerDone)
-	}()
 	wg.Wait()
-	close(partialCh)
-	<-mergerDone
 	index.Lock()
 	index.update()
 	index.Unlock()
@@ -294,8 +288,7 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 	index.searchCache = make(map[string][]ScoredDoc)
 	index.Unlock()
 	jobs := make(chan GenericRecord, 50)
-	partialCh := make(chan partialIndex, index.numWorkers*2)
-	const flushThreshold = 1000
+	const flushThreshold = 100
 	var wg sync.WaitGroup
 	for w := 0; w < index.numWorkers; w++ {
 		wg.Add(1)
@@ -321,7 +314,7 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 				partial.totalDocs++
 				count++
 				if count >= flushThreshold {
-					partialCh <- partial
+					index.mergePartial(partial)
 					partial = partialIndex{
 						docs:     make(map[int]GenericRecord),
 						lengths:  make(map[int]int),
@@ -336,7 +329,7 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 				}
 			}
 			if count > 0 {
-				partialCh <- partial
+				index.mergePartial(partial)
 			}
 		}(w)
 	}
@@ -351,27 +344,7 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 		}
 		close(jobs)
 	}()
-	mergerDone := make(chan struct{})
-	go func() {
-		for part := range partialCh {
-			index.Lock()
-			for id, rec := range part.docs {
-				index.Documents[id] = rec
-			}
-			for id, length := range part.lengths {
-				index.DocLengths[id] = length
-			}
-			for term, postings := range part.inverted {
-				index.Index[term] = append(index.Index[term], postings...)
-			}
-			index.TotalDocs += part.totalDocs
-			index.Unlock()
-		}
-		close(mergerDone)
-	}()
 	wg.Wait()
-	close(partialCh)
-	<-mergerDone
 	index.Lock()
 	index.update()
 	index.Unlock()
@@ -453,7 +426,23 @@ type BM25 struct {
 
 var defaultBM25 = BM25{K: 1.2, B: 0.75}
 
-func (index *Index) Search(ctx context.Context, q Query, bm ...BM25) ([]ScoredDoc, error) {
+type Pagination struct {
+	Page    int
+	PerPage int
+}
+
+type SearchParams struct {
+	Page       int
+	PerPage    int
+	BM25Params BM25
+	SortFields []SortField
+}
+
+func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchParams) (Page, error) {
+	var params SearchParams
+	if len(paramList) > 0 {
+		params = paramList[0]
+	}
 	queryTokens := q.Tokens()
 	var key string
 	if len(queryTokens) > 0 {
@@ -461,19 +450,27 @@ func (index *Index) Search(ctx context.Context, q Query, bm ...BM25) ([]ScoredDo
 	} else {
 		key = fmt.Sprintf("%T:%v", q, q)
 	}
+	page := params.Page
+	perPage := params.PerPage
 	index.RLock()
 	if res, found := index.searchCache[key]; found {
 		index.RUnlock()
-		return res, nil
+		if page < 1 {
+			page = 1
+		}
+		if perPage < 1 {
+			perPage = 10
+		}
+		return smartPaginate(res, page, perPage), nil
 	}
 	if index.indexingInProgress {
 		index.RUnlock()
-		return nil, fmt.Errorf("indexing in progress; please try again later")
+		return Page{}, fmt.Errorf("indexing in progress; please try again later")
 	}
 	index.RUnlock()
-	params := defaultBM25
-	if len(bm) > 0 {
-		params = bm[0]
+	bm25 := defaultBM25
+	if params.BM25Params.K != 0 || params.BM25Params.B != 0 {
+		bm25 = params.BM25Params
 	}
 	var (
 		scored []ScoredDoc
@@ -495,34 +492,97 @@ func (index *Index) Search(ctx context.Context, q Query, bm ...BM25) ([]ScoredDo
 				case <-ctx.Done():
 					return
 				default:
-					score := index.bm25Score(queryTokens, docID, params.K, params.B)
-					mu.Lock()
-					scored = append(scored, ScoredDoc{DocID: docID, Score: score})
-					mu.Unlock()
 				}
+				score := index.bm25Score(queryTokens, docID, bm25.K, bm25.B)
+				mu.Lock()
+				scored = append(scored, ScoredDoc{DocID: docID, Score: score})
+				mu.Unlock()
 			}
 		}()
 	}
 	wg.Wait()
-	sort.Slice(scored, func(i, j int) bool {
-		return scored[i].Score > scored[j].Score
-	})
+	if sortedQ, ok := q.(SortedQuery); ok {
+		sort.SliceStable(scored, func(i, j int) bool {
+			docI := index.Documents[scored[i].DocID]
+			docJ := index.Documents[scored[j].DocID]
+			for _, field := range sortedQ.SortFields() {
+				valI, okI := docI[field.Field]
+				valJ, okJ := docJ[field.Field]
+				if !okI || !okJ {
+					continue
+				}
+				cmp := utils.Compare(valI, valJ)
+				if cmp == 0 {
+					continue
+				}
+				if field.Ascending {
+					return cmp < 0
+				}
+				return cmp > 0
+			}
+			return scored[i].Score > scored[j].Score
+		})
+	} else {
+		sort.Slice(scored, func(i, j int) bool {
+			return scored[i].Score > scored[j].Score
+		})
+	}
 	index.Lock()
 	index.searchCache[key] = scored
 	index.Unlock()
-	return scored, nil
+	return smartPaginate(scored, page, perPage), nil
 }
 
-func Paginate(docs []ScoredDoc, page, perPage int) []ScoredDoc {
+type SortField struct {
+	Field     string
+	Ascending bool
+}
+
+type SortedQuery interface {
+	SortFields() []SortField
+}
+
+type Page struct {
+	Results    []ScoredDoc
+	Total      int
+	Page       int
+	PerPage    int
+	TotalPages int
+	NextPage   *int
+	PrevPage   *int
+}
+
+func smartPaginate(docs []ScoredDoc, page, perPage int) Page {
+	total := len(docs)
+	totalPages := (total + perPage - 1) / perPage
+	if page < 1 {
+		page = 1
+	} else if page > totalPages {
+		page = totalPages
+	}
 	start := (page - 1) * perPage
-	if start >= len(docs) {
-		return nil
-	}
 	end := start + perPage
-	if end > len(docs) {
-		end = len(docs)
+	if end > total {
+		end = total
 	}
-	return docs[start:end]
+	var next, prev *int
+	if page < totalPages {
+		np := page + 1
+		next = &np
+	}
+	if page > 1 {
+		pp := page - 1
+		prev = &pp
+	}
+	return Page{
+		Results:    docs[start:end],
+		Total:      total,
+		Page:       page,
+		PerPage:    perPage,
+		TotalPages: totalPages,
+		NextPage:   next,
+		PrevPage:   prev,
+	}
 }
 
 func (index *Index) AddDocument(rec GenericRecord) {
@@ -547,7 +607,6 @@ func (index *Index) UpdateDocument(docID int, rec GenericRecord) error {
 	oldRec := index.Documents[docID]
 	oldFreq := oldRec.getFrequency()
 	for term := range oldFreq {
-
 		if postings, exists := index.Index[term]; exists {
 			newPostings := postings[:0]
 			for _, p := range postings {

@@ -31,13 +31,14 @@ func main() {
 	fmt.Println("Indexing took", time.Since(start))
 	defer store.Close()
 	start = time.Now()
-	raws, err := store.Search("G0365")
+	term := "G0365"
+	raws, err := store.Search(term)
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("Searching took", time.Since(start))
 	for _, r := range raws {
-		fmt.Printf("Found: %+v\n", string(r))
+		fmt.Printf("Found %s: %+v\n", term, string(r))
 	}
 }
 
@@ -73,9 +74,12 @@ func (s *JSONLineStore) Open() error {
 		return err
 	}
 	if first[0] == '[' {
-		dec := json.NewDecoder(buf)
+		bts, err := io.ReadAll(buf)
+		if err != nil {
+			return err
+		}
 		var arr []json.RawMessage
-		if err := dec.Decode(&arr); err != nil {
+		if err := jsonmap.Unmarshal(bts, &arr); err != nil {
 			return err
 		}
 		ndPath := s.path + ".ndjson"

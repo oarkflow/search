@@ -35,14 +35,14 @@ require (
 	github.com/oarkflow/flydb v0.0.1 // indirect
 	github.com/oarkflow/frame v0.0.69 // indirect
 	github.com/oarkflow/gopool v0.0.2 // indirect
-	github.com/oarkflow/json v0.0.26 // indirect
+	github.com/oarkflow/json v0.0.27 // indirect
 	github.com/oarkflow/log v1.0.83 // indirect
 	github.com/oarkflow/metadata v0.0.76 // indirect
 	github.com/oarkflow/msgpack v0.0.1 // indirect
 	github.com/oarkflow/pkg v0.1.47 // indirect
 	github.com/oarkflow/protocol v0.0.16 // indirect
 	github.com/oarkflow/render v0.0.1 // indirect
-	github.com/oarkflow/squealx v0.0.46 // indirect
+	github.com/oarkflow/squealx v0.0.47 // indirect
 	github.com/oarkflow/xid v1.2.5 // indirect
 	github.com/oarkflow/xsync v0.0.5 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect

@@ -192,18 +192,22 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 		wg.Wait()
 		close(results)
 	}()
+	var allResults []result
 	for res := range results {
-		index.Lock()
-		index.indexDoc(job{id: res.id, rec: res.rec}, res.freq)
-		index.TotalDocs++
-		index.Unlock()
+		allResults = append(allResults, res)
 		for _, cb := range callbacks {
 			if err := cb(res.rec); err != nil {
 				log.Printf("callback error: %v", err)
 			}
 		}
 	}
+	index.Lock()
+	for _, res := range allResults {
+		index.indexDoc(job{id: res.id, rec: res.rec}, res.freq)
+		index.TotalDocs++
+	}
 	index.update()
+	index.Unlock()
 	return nil
 }
 
@@ -408,7 +412,12 @@ var defaultBM25 = BM25{K: 1.2, B: 0.75}
 
 func (index *Index) Search(ctx context.Context, q Query, bm ...BM25) ([]ScoredDoc, error) {
 	queryTokens := q.Tokens()
-	key := strings.Join(queryTokens, " ")
+	var key string
+	if len(queryTokens) > 0 {
+		key = strings.Join(queryTokens, " ")
+	} else {
+		key = fmt.Sprintf("%T:%v", q, q)
+	}
 	index.RLock()
 	if res, found := index.searchCache[key]; found {
 		index.RUnlock()

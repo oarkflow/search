@@ -1,397 +1,295 @@
 package main
 
-//
-//import (
-//	"bufio"
-//	"bytes"
-//	"encoding/binary"
-//	"encoding/gob"
-//	"fmt"
-//	"io"
-//	"log"
-//	"os"
-//	"regexp"
-//	"strings"
-//	"sync"
-//	"syscall"
-//	"time"
-//
-//	"github.com/klauspost/compress/zstd"
-//	"github.com/oarkflow/json"
-//	"github.com/oarkflow/json/jsonmap"
-//)
-//
-//const (
-//	defaultBlockSize = 1 << 20 // 1 MiB raw
-//	blockMagic       = "BLK0"
-//	blockVersion     = uint16(1)
-//)
-//
-//// RecordPos points to one JSON line inside a compressed block.
-//type RecordPos struct {
-//	Block     int // which block
-//	LineInBlk int // which line inside that block
-//}
-//
-//// blockHeader is stored uncompressed before each zstd frame.
-//type blockHeader struct {
-//	Magic    [4]byte // "BLK0"
-//	Version  uint16
-//	CompLen  uint32 // length of compressed payload
-//	PlainLen uint32 // length before compression
-//}
-//
-//// JSONLineStore manages compressed blocks + in-RAM index.
-//type JSONLineStore struct {
-//	basePath  string  // original JSON (array or ndjson)
-//	blkPath   string  // basePath + ".blk"
-//	idxPath   string  // basePath + ".idx"
-//	blockSize int     // raw bytes threshold per block
-//	blockOffs []int64 // file offsets of each block header
-//	index     map[string][]RecordPos
-//	cache     map[int][][]byte // decompressed block → lines
-//	mu        sync.RWMutex
-//}
-//
-//// New returns a store for the given JSON path.
-//func New(path string) *JSONLineStore {
-//	return &JSONLineStore{
-//		basePath:  path,
-//		blkPath:   path + ".blk",
-//		idxPath:   path + ".idx",
-//		blockSize: defaultBlockSize,
-//		index:     make(map[string][]RecordPos),
-//		cache:     make(map[int][][]byte),
-//	}
-//}
-//
-//func main() {
-//	start := time.Now()
-//	store := New("charge_master.json")
-//	if err := store.Open(); err != nil {
-//		log.Fatal(err)
-//	}
-//	fmt.Println("Indexing took", time.Since(start))
-//
-//	start = time.Now()
-//	results, err := store.Search("G0365")
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	fmt.Println("Search took", time.Since(start))
-//	for _, line := range results {
-//		fmt.Println(string(line))
-//	}
-//}
-//
-//// Open prepares .blk and .idx (building or loading as needed).
-//func (s *JSONLineStore) Open() error {
-//	// 1) build blocks if missing
-//	if !fileExists(s.blkPath) {
-//		ndPath, err := dumpNDJSONIfNeeded(s.basePath)
-//		if err != nil {
-//			return err
-//		}
-//		if err := s.buildBlocks(ndPath); err != nil {
-//			return err
-//		}
-//		// clean up temporary ndjson
-//		if ndPath != s.basePath {
-//			os.Remove(ndPath)
-//		}
-//	}
-//	// 2) load or build index
-//	if err := s.loadIndex(); err == nil {
-//		return nil
-//	}
-//	return s.buildIndex()
-//}
-//
-//// fileExists returns whether the given file path exists.
-//func fileExists(path string) bool {
-//	_, err := os.Stat(path)
-//	return err == nil
-//}
-//
-//// dumpNDJSONIfNeeded converts a JSON array to ndjson in a temp file, if needed.
-//// Returns the path to an ndjson file (either original or newly created).
-//func dumpNDJSONIfNeeded(inPath string) (string, error) {
-//	f, err := os.Open(inPath)
-//	if err != nil {
-//		return "", err
-//	}
-//	defer f.Close()
-//
-//	r := bufio.NewReader(f)
-//	first, err := r.Peek(1)
-//	if err != nil {
-//		return "", err
-//	}
-//	if first[0] != '[' {
-//		return inPath, nil
-//	}
-//
-//	all, err := io.ReadAll(r)
-//	if err != nil {
-//		return "", err
-//	}
-//	var arr []json.RawMessage
-//	if err := jsonmap.Unmarshal(all, &arr); err != nil {
-//		return "", err
-//	}
-//
-//	outPath := inPath + ".ndjson"
-//	of, err := os.Create(outPath)
-//	if err != nil {
-//		return "", err
-//	}
-//	defer of.Close()
-//	for _, raw := range arr {
-//		of.Write(raw)
-//		of.Write([]byte("\n"))
-//	}
-//	return outPath, nil
-//}
-//
-//// buildBlocks reads inputPath as ndjson, splits into raw blocks, compresses each,
-//// and writes header+zstd payload sequentially to s.blkPath.
-//func (s *JSONLineStore) buildBlocks(inputPath string) error {
-//	in, err := os.Open(inputPath)
-//	if err != nil {
-//		return err
-//	}
-//	defer in.Close()
-//
-//	out, err := os.Create(s.blkPath)
-//	if err != nil {
-//		return err
-//	}
-//	defer out.Close()
-//
-//	scanner := bufio.NewScanner(in)
-//	// if lines might exceed 64K, increase buffer:
-//	// scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
-//
-//	var buf bytes.Buffer
-//	enc, _ := zstd.NewWriter(nil)
-//	encode := enc.EncodeAll
-//
-//	writeBlock := func() error {
-//		if buf.Len() == 0 {
-//			return nil
-//		}
-//		raw := buf.Bytes()
-//		comp := encode(raw, nil)
-//
-//		hdrSize := binary.Size(blockHeader{})
-//		tmp := make([]byte, hdrSize)
-//		copy(tmp[0:], []byte(blockMagic))
-//		binary.BigEndian.PutUint16(tmp[4:], blockVersion)
-//		binary.BigEndian.PutUint32(tmp[6:], uint32(len(comp)))
-//		binary.BigEndian.PutUint32(tmp[10:], uint32(len(raw)))
-//
-//		if _, err := out.Write(tmp); err != nil {
-//			return err
-//		}
-//		if _, err := out.Write(comp); err != nil {
-//			return err
-//		}
-//
-//		buf.Reset()
-//		return nil
-//	}
-//
-//	for scanner.Scan() {
-//		line := scanner.Bytes()
-//		buf.Write(line)
-//		buf.WriteByte('\n')
-//		if buf.Len() >= s.blockSize {
-//			if err := writeBlock(); err != nil {
-//				return err
-//			}
-//		}
-//	}
-//	if err := scanner.Err(); err != nil {
-//		return err
-//	}
-//	return writeBlock()
-//}
-//
-//// buildIndex memory-maps the .blk file, scans headers, decompresses each block in
-//// parallel, tokenizes lines, and builds the in-RAM inverted index.
-//func (s *JSONLineStore) buildIndex() error {
-//	f, err := os.Open(s.blkPath)
-//	if err != nil {
-//		return err
-//	}
-//	defer f.Close()
-//	fi, _ := f.Stat()
-//
-//	data, err := syscall.Mmap(int(f.Fd()), 0, int(fi.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
-//	if err != nil {
-//		return err
-//	}
-//	defer syscall.Munmap(data)
-//
-//	var offs []int64
-//	pos := int64(0)
-//	hdrSz := int64(binary.Size(blockHeader{}))
-//	for pos < int64(len(data)) {
-//		if string(data[pos:pos+4]) != blockMagic {
-//			return fmt.Errorf("bad magic at %d", pos)
-//		}
-//		if v := binary.BigEndian.Uint16(data[pos+4:]); v != blockVersion {
-//			return fmt.Errorf("bad version %d at %d", v, pos)
-//		}
-//		cSz := int64(binary.BigEndian.Uint32(data[pos+6:]))
-//		offs = append(offs, pos)
-//		pos += hdrSz + cSz
-//	}
-//	s.blockOffs = offs
-//	s.index = make(map[string][]RecordPos)
-//
-//	dec, _ := zstd.NewReader(nil)
-//	defer dec.Close()
-//
-//	var wg sync.WaitGroup
-//	ch := make(chan struct {
-//		blkID int
-//		raw   []byte
-//	}, len(offs))
-//
-//	for blkID, off := range offs {
-//		wg.Add(1)
-//		go func(blkID int, off int64) {
-//			defer wg.Done()
-//			cSz := int(binary.BigEndian.Uint32(data[off+6:]))
-//			ct := data[off+hdrSz : off+hdrSz+int64(cSz)]
-//			raw, _ := dec.DecodeAll(ct, nil)
-//			ch <- struct {
-//				blkID int
-//				raw   []byte
-//			}{blkID, raw}
-//		}(blkID, off)
-//	}
-//	go func() {
-//		wg.Wait()
-//		close(ch)
-//	}()
-//
-//	wordRE := regexp.MustCompile(`[_A-Za-z0-9]+`)
-//	for rec := range ch {
-//		lines := bytesSplit(rec.raw, '\n')
-//		for i, ln := range lines {
-//			for _, w := range wordRE.FindAll(ln, -1) {
-//				key := strings.ToLower(string(w))
-//				s.index[key] = append(s.index[key], RecordPos{Block: rec.blkID, LineInBlk: i})
-//			}
-//		}
-//	}
-//	return s.saveIndex()
-//}
-//
-//// saveIndex writes blockOffs + index to .idx via gob.
-//func (s *JSONLineStore) saveIndex() error {
-//	f, err := os.Create(s.idxPath)
-//	if err != nil {
-//		return err
-//	}
-//	defer f.Close()
-//	// wrap file writer with zstd encoder for compression
-//	zenc, err := zstd.NewWriter(f)
-//	if err != nil {
-//		return err
-//	}
-//	defer zenc.Close()
-//	enc := gob.NewEncoder(zenc)
-//	return enc.Encode(struct {
-//		BlockOffs []int64
-//		Index     map[string][]RecordPos
-//	}{s.blockOffs, s.index})
-//}
-//
-//// loadIndex reads the .idx file into memory.
-//func (s *JSONLineStore) loadIndex() error {
-//	f, err := os.Open(s.idxPath)
-//	if err != nil {
-//		return err
-//	}
-//	defer f.Close()
-//	// wrap file reader with zstd decoder for decompression
-//	zdec, err := zstd.NewReader(f)
-//	if err != nil {
-//		return err
-//	}
-//	defer zdec.Close()
-//	var data struct {
-//		BlockOffs []int64
-//		Index     map[string][]RecordPos
-//	}
-//	if err := gob.NewDecoder(zdec).Decode(&data); err != nil {
-//		return err
-//	}
-//	s.blockOffs = data.BlockOffs
-//	s.index = data.Index
-//	return nil
-//}
-//
-//// Search returns all JSON lines containing term (case-insensitive).
-//func (s *JSONLineStore) Search(term string) ([][]byte, error) {
-//	s.mu.RLock()
-//	defer s.mu.RUnlock()
-//
-//	key := strings.ToLower(term)
-//	poses, ok := s.index[key]
-//	if !ok {
-//		return nil, nil
-//	}
-//
-//	// mmap + decompressor
-//	f, err := os.Open(s.blkPath)
-//	if err != nil {
-//		return nil, err
-//	}
-//	defer f.Close()
-//	fi, _ := f.Stat()
-//	data, err := syscall.Mmap(int(f.Fd()), 0, int(fi.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
-//	if err != nil {
-//		return nil, err
-//	}
-//	defer syscall.Munmap(data)
-//	dec, _ := zstd.NewReader(nil)
-//	defer dec.Close()
-//
-//	hdrSz := int64(binary.Size(blockHeader{}))
-//	var out [][]byte
-//	for _, rp := range poses {
-//		lines, cached := s.cache[rp.Block]
-//		if !cached {
-//			off := s.blockOffs[rp.Block]
-//			cSz := int(binary.BigEndian.Uint32(data[off+6:]))
-//			ct := data[off+hdrSz : off+hdrSz+int64(cSz)]
-//			raw, _ := dec.DecodeAll(ct, nil)
-//			lines = bytesSplit(raw, '\n')
-//			s.cache[rp.Block] = lines
-//		}
-//		if rp.LineInBlk < len(lines) {
-//			out = append(out, lines[rp.LineInBlk])
-//		}
-//	}
-//	return out, nil
-//}
-//
-//// bytesSplit splits b on sep (like bytes.Split but simpler).
-//func bytesSplit(b []byte, sep byte) [][]byte {
-//	var res [][]byte
-//	start := 0
-//	for i, c := range b {
-//		if c == sep {
-//			res = append(res, b[start:i])
-//			start = i + 1
-//		}
-//	}
-//	if start < len(b) {
-//		res = append(res, b[start:])
-//	}
-//	return res
-//}
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"sort"
+	"strconv"
+	"time"
+
+	"github.com/oarkflow/xid"
+)
+
+type Ordered interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~float32 | ~float64 | ~string
+}
+
+type node[K Ordered, V any] struct {
+	isLeaf   bool
+	keys     []K
+	children []*node[K, V]
+	values   []V
+	next     *node[K, V]
+}
+
+type BPTree[K Ordered, V any] struct {
+	root  *node[K, V]
+	order int
+}
+
+func NewBPTree[K Ordered, V any](order int) *BPTree[K, V] {
+	t := &BPTree[K, V]{order: order}
+	t.root = &node[K, V]{isLeaf: true}
+	return t
+}
+
+func (t *BPTree[K, V]) Search(key K) (V, bool) {
+	n := t.root
+	for !n.isLeaf {
+		i := sort.Search(len(n.keys), func(i int) bool { return key < n.keys[i] })
+		n = n.children[i]
+	}
+	i := sort.Search(len(n.keys), func(i int) bool { return n.keys[i] >= key })
+	if i < len(n.keys) && n.keys[i] == key {
+		return n.values[i], true
+	}
+	var zero V
+	return zero, false
+}
+
+func (t *BPTree[K, V]) Insert(key K, value V) {
+	newKey, newChild := t.insert(t.root, key, value)
+	if newChild != nil {
+		t.root = &node[K, V]{isLeaf: false, keys: []K{newKey}, children: []*node[K, V]{t.root, newChild}}
+	}
+}
+
+func (t *BPTree[K, V]) insert(n *node[K, V], key K, value V) (K, *node[K, V]) {
+	if n.isLeaf {
+		i := sort.Search(len(n.keys), func(i int) bool { return n.keys[i] >= key })
+		if i < len(n.keys) && n.keys[i] == key {
+			n.values[i] = value
+			var zero K
+			return zero, nil
+		}
+		n.keys = append(n.keys, key)
+		n.values = append(n.values, value)
+		copy(n.keys[i+1:], n.keys[i:])
+		copy(n.values[i+1:], n.values[i:])
+		n.keys[i] = key
+		n.values[i] = value
+		if len(n.keys) < t.order {
+			var zero K
+			return zero, nil
+		}
+		return t.splitLeaf(n)
+	}
+	i := sort.Search(len(n.keys), func(i int) bool { return key < n.keys[i] })
+	newKey, newChild := t.insert(n.children[i], key, value)
+	if newChild == nil {
+		var zero K
+		return zero, nil
+	}
+	j := sort.Search(len(n.keys), func(i int) bool { return newKey < n.keys[i] })
+	n.keys = append(n.keys, newKey)
+	copy(n.keys[j+1:], n.keys[j:])
+	n.keys[j] = newKey
+	n.children = append(n.children, nil)
+	copy(n.children[j+2:], n.children[j+1:])
+	n.children[j+1] = newChild
+	if len(n.children) <= t.order {
+		var zero K
+		return zero, nil
+	}
+	return t.splitInternal(n)
+}
+
+func (t *BPTree[K, V]) splitLeaf(n *node[K, V]) (K, *node[K, V]) {
+	mid := (t.order + 1) / 2
+	newNode := &node[K, V]{isLeaf: true}
+	newNode.keys = append(newNode.keys, n.keys[mid:]...)
+	newNode.values = append(newNode.values, n.values[mid:]...)
+	n.keys = n.keys[:mid]
+	n.values = n.values[:mid]
+	newNode.next = n.next
+	n.next = newNode
+	return newNode.keys[0], newNode
+}
+
+func (t *BPTree[K, V]) splitInternal(n *node[K, V]) (K, *node[K, V]) {
+	mid := t.order / 2
+	newNode := &node[K, V]{isLeaf: false}
+	promoted := n.keys[mid]
+	newNode.keys = append(newNode.keys, n.keys[mid+1:]...)
+	newNode.children = append(newNode.children, n.children[mid+1:]...)
+	n.keys = n.keys[:mid]
+	n.children = n.children[:mid+1]
+	return promoted, newNode
+}
+
+func (t *BPTree[K, V]) Delete(key K) bool {
+	deleted := t.delete(nil, t.root, key, 0)
+	if !t.root.isLeaf && len(t.root.keys) == 0 {
+		t.root = t.root.children[0]
+	}
+	return deleted
+}
+
+func (t *BPTree[K, V]) delete(parent *node[K, V], n *node[K, V], key K, idx int) bool {
+	if n.isLeaf {
+		i := sort.Search(len(n.keys), func(i int) bool { return n.keys[i] >= key })
+		if i >= len(n.keys) || n.keys[i] != key {
+			return false
+		}
+		n.keys = append(n.keys[:i], n.keys[i+1:]...)
+		n.values = append(n.values[:i], n.values[i+1:]...)
+		if parent != nil && len(n.keys) < (t.order+1)/2 {
+			t.rebalance(parent, n, idx)
+		}
+		return true
+	}
+	i := sort.Search(len(n.keys), func(i int) bool { return key < n.keys[i] })
+	if t.delete(n, n.children[i], key, i) {
+		if i < len(n.children) && len(n.children[i].keys) < (t.order+1)/2 {
+			t.rebalance(n, n.children[i], i)
+		}
+		return true
+	}
+	return false
+}
+
+func (t *BPTree[K, V]) rebalance(parent, child *node[K, V], idx int) {
+	var left, right *node[K, V]
+	if idx > 0 {
+		left = parent.children[idx-1]
+	}
+	if idx < len(parent.children)-1 {
+		right = parent.children[idx+1]
+	}
+	minKeys := (t.order + 1) / 2
+	if left != nil && len(left.keys) > minKeys {
+		if child.isLeaf {
+			child.keys = append([]K{left.keys[len(left.keys)-1]}, child.keys...)
+			child.values = append([]V{left.values[len(left.values)-1]}, child.values...)
+			left.keys = left.keys[:len(left.keys)-1]
+			left.values = left.values[:len(left.values)-1]
+			parent.keys[idx-1] = child.keys[0]
+		} else {
+			child.keys = append([]K{parent.keys[idx-1]}, child.keys...)
+			child.children = append([]*node[K, V]{left.children[len(left.children)-1]}, child.children...)
+			left.keys = left.keys[:len(left.keys)-1]
+			left.children = left.children[:len(left.children)-1]
+			parent.keys[idx-1] = child.keys[0]
+		}
+		return
+	}
+	if right != nil && len(right.keys) > minKeys {
+		if child.isLeaf {
+			child.keys = append(child.keys, right.keys[0])
+			child.values = append(child.values, right.values[0])
+			right.keys = right.keys[1:]
+			right.values = right.values[1:]
+			parent.keys[idx] = right.keys[0]
+		} else {
+			child.keys = append(child.keys, parent.keys[idx])
+			child.children = append(child.children, right.children[0])
+			parent.keys[idx] = right.keys[0]
+			right.keys = right.keys[1:]
+			right.children = right.children[1:]
+		}
+		return
+	}
+	if left != nil {
+		if child.isLeaf {
+			left.keys = append(left.keys, child.keys...)
+			left.values = append(left.values, child.values...)
+			left.next = child.next
+		} else {
+			left.keys = append(left.keys, parent.keys[idx-1])
+			left.keys = append(left.keys, child.keys...)
+			left.children = append(left.children, child.children...)
+		}
+		parent.keys = append(parent.keys[:idx-1], parent.keys[idx:]...)
+		parent.children = append(parent.children[:idx], parent.children[idx+1:]...)
+	} else if right != nil {
+		if child.isLeaf {
+			child.keys = append(child.keys, right.keys...)
+			child.values = append(child.values, right.values...)
+			child.next = right.next
+		} else {
+			child.keys = append(child.keys, parent.keys[idx])
+			child.keys = append(child.keys, right.keys...)
+			child.children = append(child.children, right.children...)
+		}
+		parent.keys = append(parent.keys[:idx], parent.keys[idx+1:]...)
+		parent.children = append(parent.children[:idx+1], parent.children[idx+2:]...)
+	}
+}
+
+func toString(val any) string {
+	switch val := val.(type) {
+	case string:
+		return val
+	case []byte:
+		return string(val)
+	case int, int32, int64, int8, int16, uint, uint32, uint64, uint8, uint16:
+		return fmt.Sprintf("%d", val)
+	case float32:
+		buf := make([]byte, 0, 32)
+		buf = strconv.AppendFloat(buf, float64(val), 'f', -1, 64)
+		return string(buf)
+	case float64:
+		buf := make([]byte, 0, 32)
+		buf = strconv.AppendFloat(buf, val, 'f', -1, 64)
+		return string(buf)
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	default:
+		return fmt.Sprintf("%v", val)
+	}
+}
+
+func StoreFromJSON(tree *BPTree[string, map[string]any], file string, keyField string) error {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	var records []map[string]interface{}
+	if err := json.Unmarshal(data, &records); err != nil {
+		return err
+	}
+	for _, rec := range records {
+		v, ok := rec[keyField]
+		if !ok {
+			v = xid.New().String()
+		}
+		key := toString(v)
+		tree.Insert(key, rec)
+	}
+	return nil
+}
+
+func main() {
+	tree := NewBPTree[int, string](3)
+	tree.Insert(10, "a")
+	tree.Insert(20, "b")
+	tree.Insert(5, "c")
+	tree.Insert(6, "d")
+	tree.Insert(12, "e")
+	tree.Insert(30, "f")
+	tree.Insert(7, "g")
+	tree.Insert(17, "h")
+	keys := []int{5, 6, 7, 10, 12, 17, 20, 30}
+	for _, k := range keys {
+		if v, ok := tree.Search(k); ok {
+			fmt.Printf("%d: %v\n", k, v)
+		} else {
+			fmt.Printf("%d not found\n", k)
+		}
+	}
+	tree.Delete(10)
+	if _, ok := tree.Search(10); !ok {
+		fmt.Println("10 deleted")
+	}
+	treeStr := NewBPTree[string, map[string]any](2)
+	start := time.Now()
+	err := StoreFromJSON(treeStr, "charge_master.json", "charge_master_id")
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Printf("Time taken to store from JSON: %v\n", time.Since(start))
+}

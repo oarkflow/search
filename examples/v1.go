@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/oarkflow/search/lib"
 	v1 "github.com/oarkflow/search/v1"
 )
 
@@ -14,7 +15,10 @@ func main() {
 	jsonFilePath := "charge_master.json"
 	startTime := time.Now()
 	index := v1.NewIndex("test")
+	before := lib.Stats()
 	err := index.Build(ctx, jsonFilePath)
+	after := lib.Stats()
+	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	if err != nil {
 		log.Fatalf("Error building index: %v", err)
 	}

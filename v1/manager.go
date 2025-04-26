@@ -31,7 +31,8 @@ func (m *Manager) AddIndex(name string, index *Index) {
 }
 
 func (m *Manager) GetIndex(name string) (*Index, bool) {
-	m.mutex.Lock()
+	// Use a read lock for retrieving the index
+	m.mutex.Lock() // Replace with RLock if mutex becomes RWMutex; otherwise, minimal change
 	defer m.mutex.Unlock()
 	index, ok := m.indexes[name]
 	return index, ok
@@ -44,7 +45,8 @@ func (m *Manager) DeleteIndex(name string) {
 }
 
 func (m *Manager) ListIndexes() []string {
-	m.mutex.Lock()
+	// Use a read lock for listing indexes
+	m.mutex.Lock() // Replace with RLock if mutex becomes RWMutex
 	defer m.mutex.Unlock()
 	names := make([]string, 0, len(m.indexes))
 	for name := range m.indexes {
@@ -65,8 +67,8 @@ func (m *Manager) Build(ctx context.Context, name string, req any) error {
 
 func (m *Manager) Search(ctx context.Context, name string, q string) ([]GenericRecord, error) {
 	m.mutex.Lock()
-	defer m.mutex.Unlock()
 	index, ok := m.indexes[name]
+	m.mutex.Unlock()
 	if !ok {
 		fmt.Printf("index %s not found\n", name)
 		return nil, fmt.Errorf("index %s not found", name)

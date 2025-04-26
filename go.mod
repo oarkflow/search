@@ -4,7 +4,6 @@ go 1.24.2
 
 require (
 	github.com/goccy/go-reflect v1.2.0
-	github.com/klauspost/compress v1.18.0
 	github.com/oarkflow/date v0.0.4
 	github.com/oarkflow/filters v0.0.35
 	github.com/oarkflow/flydb v0.0.1

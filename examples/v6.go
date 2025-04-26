@@ -21,6 +21,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/oarkflow/json/jsonmap"
 )
 
 var wordRE = regexp.MustCompile(`[_A-Za-z0-9]+`)
@@ -37,35 +39,38 @@ type Query struct {
 }
 
 type JSONLineStore struct {
-	path          string
-	idxPath       string
-	file          *os.File
-	mu            sync.RWMutex
-	saveMu        sync.Mutex
-	offsets       []int64
-	index         map[string][]int
-	fieldEqIndex  map[string]map[string][]int
-	fieldNumIndex map[string][]numEntry
-
-	// incremental checksum
+	path           string
+	idxPath        string
+	file           *os.File
+	mu             sync.RWMutex
+	saveMu         sync.Mutex
+	offsets        []int64
+	index          map[string][]int
+	fieldEqIndex   map[string]map[string][]int
+	fieldNumIndex  map[string][]numEntry
 	hasher         hash.Hash
 	checksum       string
 	pendingWrites  int
 	lastSave       time.Time
 	writeThreshold int           // e.g. save after this many writes
 	flushInterval  time.Duration // or after this duration
+	cleanup        bool
 }
 
-// New creates a new JSONLineStore.
-func New(jsonPath string) *JSONLineStore {
+func New(jsonPath string, reset ...bool) *JSONLineStore {
+	var cleanup bool
+	if len(reset) > 0 && reset[0] {
+		cleanup = true
+	}
 	return &JSONLineStore{
 		path:           jsonPath,
 		idxPath:        jsonPath + ".idx",
+		cleanup:        cleanup,
 		index:          make(map[string][]int),
 		fieldEqIndex:   make(map[string]map[string][]int),
 		fieldNumIndex:  make(map[string][]numEntry),
-		writeThreshold: 100,             // adjust as needed
-		flushInterval:  5 * time.Second, // adjust as needed
+		writeThreshold: 100,
+		flushInterval:  5 * time.Second,
 	}
 }
 
@@ -74,9 +79,9 @@ func (s *JSONLineStore) Open() error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
-	// JSON array → ndjson conversion
+	defer func() {
+		_ = f.Close()
+	}()
 	buf := bufio.NewReader(f)
 	first, err := buf.Peek(1)
 	if err != nil {
@@ -88,43 +93,52 @@ func (s *JSONLineStore) Open() error {
 			return err
 		}
 		var arr []json.RawMessage
-		if err := json.Unmarshal(bts, &arr); err != nil {
+		if err := jsonmap.Unmarshal(bts, &arr); err != nil {
 			return err
 		}
 		ndPath := s.path + ".ndjson"
+		idxPath := ndPath + ".idx"
+		if s.cleanup {
+			if err := os.Remove(ndPath); err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					fmt.Println("warning: failed to remove old .ndjson file:", err)
+				}
+			}
+			if err := os.Remove(ndPath + ".idx"); err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					fmt.Println("warning: failed to remove old .ndjson.idx file:", err)
+				}
+			}
+		}
 		nf, err := os.Create(ndPath)
 		if err != nil {
 			return err
 		}
-		defer nf.Close()
+		defer func() {
+			_ = nf.Close()
+		}()
 		for _, raw := range arr {
-			nf.Write(raw)
-			nf.Write([]byte("\n"))
+			_, _ = nf.Write(raw)
+			_, _ = nf.Write([]byte("\n"))
 		}
 		s.path = ndPath
-		s.idxPath = ndPath + ".idx"
+		s.idxPath = idxPath
 	}
-
 	f2, err := os.OpenFile(s.path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		return err
 	}
 	s.file = f2
-
-	// compute initial checksum and feed hasher
 	if err := s.computeInitialChecksum(); err != nil {
-		s.file.Close()
+		_ = s.file.Close()
 		return err
 	}
-
-	// try to load existing index
 	if err := s.loadIndex(); err == nil {
 		return nil
 	}
 	return s.buildIndex()
 }
 
-// computeInitialChecksum reads the entire file once to initialize hasher & checksum
 func (s *JSONLineStore) computeInitialChecksum() error {
 	if _, err := s.file.Seek(0, io.SeekStart); err != nil {
 		return err
@@ -173,7 +187,7 @@ func (s *JSONLineStore) Write(obj any) error {
 	s.tokenizeAndIndex(line, recNum)
 	// update field indexes
 	var m map[string]any
-	if err := json.Unmarshal(line, &m); err == nil {
+	if err := jsonmap.Unmarshal(line, &m); err == nil {
 		s.indexFields(m, recNum)
 	}
 
@@ -210,33 +224,30 @@ func (s *JSONLineStore) asyncSaveIndex() {
 		log.Println("saveIndex:", err)
 		return
 	}
+	defer func() {
+		_ = f.Close()
+	}()
 	enc := gob.NewEncoder(f)
 	if err := enc.Encode(checksum); err != nil {
 		log.Println("saveIndex:", err)
-		f.Close()
 		return
 	}
 	if err := enc.Encode(offsets); err != nil {
 		log.Println("saveIndex:", err)
-		f.Close()
 		return
 	}
 	if err := enc.Encode(index); err != nil {
 		log.Println("saveIndex:", err)
-		f.Close()
 		return
 	}
 	if err := enc.Encode(fieldEq); err != nil {
 		log.Println("saveIndex:", err)
-		f.Close()
 		return
 	}
 	if err := enc.Encode(fieldNum); err != nil {
 		log.Println("saveIndex:", err)
-		f.Close()
 		return
 	}
-	f.Close()
 	if err := os.Rename(tmp, s.idxPath); err != nil {
 		log.Println("saveIndex:", err)
 		return
@@ -494,7 +505,9 @@ func (s *JSONLineStore) buildIndex() error {
 	if data == nil {
 		return nil
 	}
-	defer syscall.Munmap(data)
+	defer func() {
+		_ = syscall.Munmap(data)
+	}()
 
 	lines := bytes.Split(data, []byte{'\n'})
 	if len(lines) > 0 && len(lines[len(lines)-1]) == 0 {
@@ -621,15 +634,15 @@ func (s *JSONLineStore) loadIndex() error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
+	defer func() {
+		_ = f.Close()
+	}()
 	dec := gob.NewDecoder(f)
 	var savedCS string
 	var offs []int64
 	var tok map[string][]int
 	var fe map[string]map[string][]int
 	var fn map[string][]numEntry
-
 	if err := dec.Decode(&savedCS); err != nil {
 		return err
 	}
@@ -648,7 +661,6 @@ func (s *JSONLineStore) loadIndex() error {
 	if err := dec.Decode(&fn); err != nil {
 		return err
 	}
-
 	s.offsets = offs
 	s.index = tok
 	s.fieldEqIndex = fe
@@ -658,7 +670,7 @@ func (s *JSONLineStore) loadIndex() error {
 
 func main() {
 	start := time.Now()
-	store := New("charge_master.json")
+	store := New("charge_master.json", true)
 	if err := store.Open(); err != nil {
 		log.Fatal(err)
 	}

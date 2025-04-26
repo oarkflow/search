@@ -3,8 +3,9 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"encoding/gob"
-	"encoding/json"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/oarkflow/json"
+	"github.com/oarkflow/json/jsonmap"
 )
 
 func main() {
@@ -26,9 +30,8 @@ func main() {
 	}
 	fmt.Println("Indexing took", time.Since(start))
 	defer store.Close()
-	// full-text lookup
 	start = time.Now()
-	raws, err := store.Search("31686216")
+	raws, err := store.Search("G0365")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -40,19 +43,16 @@ func main() {
 
 var wordRE = regexp.MustCompile(`[_A-Za-z0-9]+`)
 
-// JSONLineStore manages a newline-delimited JSON file + inverted index.
 type JSONLineStore struct {
-	path    string // path to NDJSON file
-	idxPath string // path to index file
-	file    *os.File
-	mu      sync.RWMutex
-
-	offsets []int64          // byte offsets of each record
-	index   map[string][]int // word → list of record indices
-	modTime time.Time
+	path     string
+	idxPath  string
+	file     *os.File
+	mu       sync.RWMutex
+	offsets  []int64
+	index    map[string][]int
+	checksum string
 }
 
-// New returns a store for either an NDJSON or a JSON-array file.
 func New(jsonPath string) *JSONLineStore {
 	return &JSONLineStore{
 		path:    jsonPath,
@@ -61,30 +61,23 @@ func New(jsonPath string) *JSONLineStore {
 	}
 }
 
-// Open initializes the store: detects format, normalizes to NDJSON, then load/build index.
 func (s *JSONLineStore) Open() error {
-	// 1) Detect & normalize
 	f, err := os.Open(s.path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-
-	// peek first non-space
 	buf := bufio.NewReader(f)
 	first, err := buf.Peek(1)
 	if err != nil {
 		return err
 	}
-
-	// if it's a JSON array, decode whole array → write NDJSON
 	if first[0] == '[' {
 		dec := json.NewDecoder(buf)
 		var arr []json.RawMessage
 		if err := dec.Decode(&arr); err != nil {
 			return err
 		}
-		// write to temp NDJSON
 		ndPath := s.path + ".ndjson"
 		nf, err := os.Create(ndPath)
 		if err != nil {
@@ -95,49 +88,38 @@ func (s *JSONLineStore) Open() error {
 			nf.Write([]byte("\n"))
 		}
 		nf.Close()
-
-		// switch store to use NDJSON
 		s.path = ndPath
 		s.idxPath = ndPath + ".idx"
 	}
-
-	// 2) Open (or re-open) NDJSON file for read/write
 	f2, err := os.OpenFile(s.path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		return err
 	}
 	s.file = f2
-
-	info, err := f2.Stat()
+	cs, err := computeChecksum(s.file)
 	if err != nil {
+		s.file.Close()
 		return err
 	}
-	s.modTime = info.ModTime()
-
-	// 3) Try load existing index
+	s.checksum = cs
 	if err := s.loadIndex(); err == nil {
 		return nil
 	}
-	// else build fresh
 	return s.buildIndex()
 }
 
-// Close the underlying file.
 func (s *JSONLineStore) Close() error {
 	return s.file.Close()
 }
 
-// Write appends an object (marshal→newline) + updates index in O(1).
 func (s *JSONLineStore) Write(obj interface{}) error {
-	data, err := json.Marshal(obj)
+	data, err := jsonmap.Marshal(obj)
 	if err != nil {
 		return err
 	}
 	line := append(data, '\n')
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	off, err := s.file.Seek(0, io.SeekEnd)
 	if err != nil {
 		return err
@@ -145,28 +127,26 @@ func (s *JSONLineStore) Write(obj interface{}) error {
 	if _, err := s.file.Write(line); err != nil {
 		return err
 	}
-
 	recNum := len(s.offsets)
 	s.offsets = append(s.offsets, off)
 	s.tokenizeAndIndex(line, recNum)
-
-	info, _ := s.file.Stat()
-	s.modTime = info.ModTime()
+	cs, err := computeChecksum(s.file)
+	if err != nil {
+		return err
+	}
+	s.checksum = cs
 	return s.saveIndex()
 }
 
-// Search returns all raw JSON lines containing term (case-insensitive).
 func (s *JSONLineStore) Search(term string) ([]json.RawMessage, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
 	key := strings.ToLower(term)
 	recs, ok := s.index[key]
 	if !ok {
 		return nil, nil
 	}
-
-	out := make([]json.RawMessage, 0, len(recs))
+	var out []json.RawMessage
 	for _, i := range recs {
 		if i < 0 || i >= len(s.offsets) {
 			continue
@@ -192,8 +172,6 @@ func (s *JSONLineStore) Search(term string) ([]json.RawMessage, error) {
 	return out, nil
 }
 
-// ——— internal ———
-
 func (s *JSONLineStore) tokenizeAndIndex(line []byte, recNum int) {
 	words := wordRE.FindAll(line, -1)
 	seen := make(map[string]struct{}, len(words))
@@ -207,7 +185,20 @@ func (s *JSONLineStore) tokenizeAndIndex(line []byte, recNum int) {
 	}
 }
 
-// mmapFile memory-maps the file read-only.
+func computeChecksum(f *os.File) (string, error) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 func mmapFile(f *os.File) ([]byte, error) {
 	fi, err := f.Stat()
 	if err != nil {
@@ -230,44 +221,33 @@ func mmapFile(f *os.File) ([]byte, error) {
 	return data, nil
 }
 
-// buildIndex scans and indexes the entire NDJSON file efficiently.
 func (s *JSONLineStore) buildIndex() error {
 	data, err := mmapFile(s.file)
 	if err != nil {
 		return err
 	}
 	if data == nil {
-		return nil // empty file
+		return nil
 	}
 	defer syscall.Munmap(data)
-
-	// Split lines
 	lines := bytes.Split(data, []byte{'\n'})
 	total := len(lines)
-
-	// Trim trailing empty line (if file ends with \n)
 	if total > 0 && len(lines[total-1]) == 0 {
 		lines = lines[:total-1]
 		total--
 	}
-
-	// Cap workers to number of lines
 	workers := runtime.GOMAXPROCS(0)
 	if total < workers {
 		workers = total
 	}
 	chunk := (total + workers - 1) / workers
-
 	s.offsets = make([]int64, total)
 	partials := make([]map[string][]int, workers)
-
 	for i := range partials {
 		partials[i] = make(map[string][]int)
 	}
-
 	var wg sync.WaitGroup
 	wg.Add(workers)
-
 	scanWords := func(line []byte, emit func(string)) {
 		n := len(line)
 		i := 0
@@ -285,7 +265,6 @@ func (s *JSONLineStore) buildIndex() error {
 			}
 		}
 	}
-
 	for p := 0; p < workers; p++ {
 		lo := p * chunk
 		hi := (p + 1) * chunk
@@ -360,7 +339,7 @@ func (s *JSONLineStore) saveIndex() error {
 		return err
 	}
 	enc := gob.NewEncoder(f)
-	if err := enc.Encode(s.modTime); err != nil {
+	if err := enc.Encode(s.checksum); err != nil {
 		f.Close()
 		return err
 	}
@@ -382,16 +361,14 @@ func (s *JSONLineStore) loadIndex() error {
 		return err
 	}
 	defer f.Close()
-
 	dec := gob.NewDecoder(f)
-	var mod time.Time
+	var savedCS string
 	var offs []int64
 	var idx map[string][]int
-
-	if err := dec.Decode(&mod); err != nil {
+	if err := dec.Decode(&savedCS); err != nil {
 		return err
 	}
-	if !mod.Equal(s.modTime) {
+	if savedCS != s.checksum {
 		return errors.New("index outdated")
 	}
 	if err := dec.Decode(&offs); err != nil {

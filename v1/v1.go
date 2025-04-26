@@ -461,6 +461,13 @@ func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchPara
 		if perPage < 1 {
 			perPage = 10
 		}
+		if len(params.SortFields) > 0 {
+			index.sortData(res, params.SortFields)
+		} else {
+			sort.Slice(res, func(i, j int) bool {
+				return res[i].Score > res[j].Score
+			})
+		}
 		return smartPaginate(res, page, perPage), nil
 	}
 	if index.indexingInProgress {
@@ -501,27 +508,8 @@ func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchPara
 		}()
 	}
 	wg.Wait()
-	if sortedQ, ok := q.(SortedQuery); ok {
-		sort.SliceStable(scored, func(i, j int) bool {
-			docI := index.Documents[scored[i].DocID]
-			docJ := index.Documents[scored[j].DocID]
-			for _, field := range sortedQ.SortFields() {
-				valI, okI := docI[field.Field]
-				valJ, okJ := docJ[field.Field]
-				if !okI || !okJ {
-					continue
-				}
-				cmp := utils.Compare(valI, valJ)
-				if cmp == 0 {
-					continue
-				}
-				if field.Ascending {
-					return cmp < 0
-				}
-				return cmp > 0
-			}
-			return scored[i].Score > scored[j].Score
-		})
+	if len(params.SortFields) > 0 {
+		index.sortData(scored, params.SortFields)
 	} else {
 		sort.Slice(scored, func(i, j int) bool {
 			return scored[i].Score > scored[j].Score
@@ -533,13 +521,32 @@ func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchPara
 	return smartPaginate(scored, page, perPage), nil
 }
 
+func (index *Index) sortData(scored []ScoredDoc, fields []SortField) {
+	sort.SliceStable(scored, func(i, j int) bool {
+		docI := index.Documents[scored[i].DocID]
+		docJ := index.Documents[scored[j].DocID]
+		for _, field := range fields {
+			valI, okI := docI[field.Field]
+			valJ, okJ := docJ[field.Field]
+			if !okI || !okJ {
+				continue
+			}
+			cmp := utils.Compare(valI, valJ)
+			if cmp == 0 {
+				continue
+			}
+			if field.Ascending {
+				return cmp < 0
+			}
+			return cmp > 0
+		}
+		return scored[i].Score > scored[j].Score
+	})
+}
+
 type SortField struct {
 	Field     string
 	Ascending bool
-}
-
-type SortedQuery interface {
-	SortFields() []SortField
 }
 
 type Page struct {

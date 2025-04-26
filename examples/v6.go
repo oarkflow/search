@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"log"
 	"os"
@@ -40,20 +41,31 @@ type JSONLineStore struct {
 	idxPath       string
 	file          *os.File
 	mu            sync.RWMutex
+	saveMu        sync.Mutex
 	offsets       []int64
 	index         map[string][]int
 	fieldEqIndex  map[string]map[string][]int
 	fieldNumIndex map[string][]numEntry
-	checksum      string
+
+	// incremental checksum
+	hasher         hash.Hash
+	checksum       string
+	pendingWrites  int
+	lastSave       time.Time
+	writeThreshold int           // e.g. save after this many writes
+	flushInterval  time.Duration // or after this duration
 }
 
+// New creates a new JSONLineStore.
 func New(jsonPath string) *JSONLineStore {
 	return &JSONLineStore{
-		path:          jsonPath,
-		idxPath:       jsonPath + ".idx",
-		index:         make(map[string][]int),
-		fieldEqIndex:  make(map[string]map[string][]int),
-		fieldNumIndex: make(map[string][]numEntry),
+		path:           jsonPath,
+		idxPath:        jsonPath + ".idx",
+		index:          make(map[string][]int),
+		fieldEqIndex:   make(map[string]map[string][]int),
+		fieldNumIndex:  make(map[string][]numEntry),
+		writeThreshold: 100,             // adjust as needed
+		flushInterval:  5 * time.Second, // adjust as needed
 	}
 }
 
@@ -64,13 +76,13 @@ func (s *JSONLineStore) Open() error {
 	}
 	defer f.Close()
 
+	// JSON array → ndjson conversion
 	buf := bufio.NewReader(f)
 	first, err := buf.Peek(1)
 	if err != nil {
 		return err
 	}
 	if first[0] == '[' {
-
 		bts, err := io.ReadAll(buf)
 		if err != nil {
 			return err
@@ -99,31 +111,53 @@ func (s *JSONLineStore) Open() error {
 	}
 	s.file = f2
 
-	cs, err := computeChecksum(s.file)
-	if err != nil {
+	// compute initial checksum and feed hasher
+	if err := s.computeInitialChecksum(); err != nil {
 		s.file.Close()
 		return err
 	}
-	s.checksum = cs
 
+	// try to load existing index
 	if err := s.loadIndex(); err == nil {
 		return nil
 	}
 	return s.buildIndex()
 }
 
+// computeInitialChecksum reads the entire file once to initialize hasher & checksum
+func (s *JSONLineStore) computeInitialChecksum() error {
+	if _, err := s.file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, s.file); err != nil {
+		return err
+	}
+	s.checksum = hex.EncodeToString(h.Sum(nil))
+	// initialize the incremental hasher state
+	s.hasher = sha256.New()
+	s.hasher.Write(h.Sum(nil))
+	s.lastSave = time.Now()
+	s.hasher.Reset()
+	return nil
+}
+
 func (s *JSONLineStore) Close() error {
 	return s.file.Close()
 }
 
+// Write appends a new JSON record, updates indexes & checksum, and schedules index save.
 func (s *JSONLineStore) Write(obj any) error {
 	data, err := json.Marshal(obj)
 	if err != nil {
 		return err
 	}
 	line := append(data, '\n')
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// append to file
 	off, err := s.file.Seek(0, io.SeekEnd)
 	if err != nil {
 		return err
@@ -131,19 +165,114 @@ func (s *JSONLineStore) Write(obj any) error {
 	if _, err := s.file.Write(line); err != nil {
 		return err
 	}
+	// record offset
 	recNum := len(s.offsets)
 	s.offsets = append(s.offsets, off)
+
+	// update full-text index
 	s.tokenizeAndIndex(line, recNum)
+	// update field indexes
 	var m map[string]any
 	if err := json.Unmarshal(line, &m); err == nil {
 		s.indexFields(m, recNum)
 	}
-	cs, err := computeChecksum(s.file)
-	if err != nil {
-		return err
+
+	// update incremental checksum
+	s.hasher.Write(line)
+	s.checksum = hex.EncodeToString(s.hasher.Sum(nil))
+
+	// schedule index save (batched)
+	s.pendingWrites++
+	if s.pendingWrites >= s.writeThreshold || time.Since(s.lastSave) >= s.flushInterval {
+		go s.asyncSaveIndex()
 	}
-	s.checksum = cs
-	return s.saveIndex()
+
+	return nil
+}
+
+// asyncSaveIndex ensures only one concurrent save, and resets counters.
+func (s *JSONLineStore) asyncSaveIndex() {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+
+	s.mu.RLock()
+	checksum := s.checksum
+	offsets := append([]int64(nil), s.offsets...)
+	index := copyIndex(s.index)
+	fieldEq := copyFieldEq(s.fieldEqIndex)
+	fieldNum := copyFieldNum(s.fieldNumIndex)
+	s.mu.RUnlock()
+
+	// write out to .idx.tmp then rename
+	tmp := s.idxPath + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		log.Println("saveIndex:", err)
+		return
+	}
+	enc := gob.NewEncoder(f)
+	if err := enc.Encode(checksum); err != nil {
+		log.Println("saveIndex:", err)
+		f.Close()
+		return
+	}
+	if err := enc.Encode(offsets); err != nil {
+		log.Println("saveIndex:", err)
+		f.Close()
+		return
+	}
+	if err := enc.Encode(index); err != nil {
+		log.Println("saveIndex:", err)
+		f.Close()
+		return
+	}
+	if err := enc.Encode(fieldEq); err != nil {
+		log.Println("saveIndex:", err)
+		f.Close()
+		return
+	}
+	if err := enc.Encode(fieldNum); err != nil {
+		log.Println("saveIndex:", err)
+		f.Close()
+		return
+	}
+	f.Close()
+	if err := os.Rename(tmp, s.idxPath); err != nil {
+		log.Println("saveIndex:", err)
+		return
+	}
+
+	s.mu.Lock()
+	s.pendingWrites = 0
+	s.lastSave = time.Now()
+	s.mu.Unlock()
+}
+
+// helpers to deep-copy indexes before saving
+func copyIndex(orig map[string][]int) map[string][]int {
+	dst := make(map[string][]int, len(orig))
+	for k, v := range orig {
+		dst[k] = append([]int(nil), v...)
+	}
+	return dst
+}
+func copyFieldEq(orig map[string]map[string][]int) map[string]map[string][]int {
+	dst := make(map[string]map[string][]int, len(orig))
+	for f, mp := range orig {
+		sub := make(map[string][]int, len(mp))
+		for val, idxs := range mp {
+			sub[val] = append([]int(nil), idxs...)
+		}
+		dst[f] = sub
+	}
+	return dst
+}
+func copyFieldNum(orig map[string][]numEntry) map[string][]numEntry {
+	dst := make(map[string][]numEntry, len(orig))
+	for f, entries := range orig {
+		dst[f] = append([]numEntry(nil), entries...)
+	}
+	return dst
 }
 
 func (s *JSONLineStore) tokenizeAndIndex(line []byte, recNum int) {
@@ -166,18 +295,21 @@ func (s *JSONLineStore) indexFields(m map[string]any, recNum int) {
 			s.fieldEqIndex[field] = make(map[string][]int)
 		}
 		s.fieldEqIndex[field][valStr] = append(s.fieldEqIndex[field][valStr], recNum)
+
 		switch num := val.(type) {
 		case float64:
 			s.fieldNumIndex[field] = append(s.fieldNumIndex[field], numEntry{Value: num, Idx: recNum})
 		case json.Number:
-
 			if f, err := num.Float64(); err == nil {
 				s.fieldNumIndex[field] = append(s.fieldNumIndex[field], numEntry{Value: f, Idx: recNum})
 			}
 		case int:
 			s.fieldNumIndex[field] = append(s.fieldNumIndex[field], numEntry{Value: float64(num), Idx: recNum})
-
 		}
+		// immediately re-sort this field's numeric index to stay correct
+		sort.Slice(s.fieldNumIndex[field], func(i, j int) bool {
+			return s.fieldNumIndex[field][i].Value < s.fieldNumIndex[field][j].Value
+		})
 	}
 }
 
@@ -189,6 +321,93 @@ func (s *JSONLineStore) Search(term string) ([]json.RawMessage, error) {
 	if !ok {
 		return nil, nil
 	}
+	return s.readRecords(recs)
+}
+
+func (s *JSONLineStore) SearchQueries(queries ...Query) ([]json.RawMessage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var results []map[int]struct{}
+	for _, q := range queries {
+		set := make(map[int]struct{})
+		switch q.Operator {
+		case "=":
+			valStr := fmt.Sprintf("%v", q.Value)
+			for _, r := range s.fieldEqIndex[q.Field][valStr] {
+				set[r] = struct{}{}
+			}
+		case "!=":
+			match := make(map[int]struct{})
+			valStr := fmt.Sprintf("%v", q.Value)
+			for _, r := range s.fieldEqIndex[q.Field][valStr] {
+				match[r] = struct{}{}
+			}
+			for _, recs := range s.fieldEqIndex[q.Field] {
+				for _, r := range recs {
+					if _, found := match[r]; !found {
+						set[r] = struct{}{}
+					}
+				}
+			}
+		case ">", ">=", "<", "<=":
+			// numeric range
+			numVal, err := toFloat64(q.Value)
+			if err != nil {
+				return nil, fmt.Errorf("value for range query must be numeric: %v", q.Value)
+			}
+			entries := s.fieldNumIndex[q.Field]
+			var start, end int
+			switch q.Operator {
+			case ">":
+				start = sort.Search(len(entries), func(i int) bool {
+					return entries[i].Value > numVal
+				})
+				end = len(entries)
+			case ">=":
+				start = sort.Search(len(entries), func(i int) bool {
+					return entries[i].Value >= numVal
+				})
+				end = len(entries)
+			case "<":
+				start = 0
+				end = sort.Search(len(entries), func(i int) bool {
+					return entries[i].Value >= numVal
+				})
+			case "<=":
+				start = 0
+				end = sort.Search(len(entries), func(i int) bool {
+					return entries[i].Value > numVal
+				})
+			}
+			for i := start; i < end; i++ {
+				set[entries[i].Idx] = struct{}{}
+			}
+		default:
+			return nil, fmt.Errorf("unsupported operator %q", q.Operator)
+		}
+		results = append(results, set)
+	}
+
+	// intersect result sets
+	final := results[0]
+	for _, s2 := range results[1:] {
+		final = intersect(final, s2)
+		if len(final) == 0 {
+			break
+		}
+	}
+
+	var recIndices []int
+	for idx := range final {
+		recIndices = append(recIndices, idx)
+	}
+	sort.Ints(recIndices)
+	return s.readRecords(recIndices)
+}
+
+// readRecords loads the raw JSON lines for a set of offsets
+func (s *JSONLineStore) readRecords(recs []int) ([]json.RawMessage, error) {
 	var out []json.RawMessage
 	for _, i := range recs {
 		if i < 0 || i >= len(s.offsets) {
@@ -209,124 +428,7 @@ func (s *JSONLineStore) Search(term string) ([]json.RawMessage, error) {
 		if _, err := s.file.ReadAt(buf, start); err != nil {
 			continue
 		}
-		buf = bytes.TrimRight(buf, "\n")
-		out = append(out, buf)
-	}
-	return out, nil
-}
-
-func (s *JSONLineStore) SearchQueries(queries ...Query) ([]json.RawMessage, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	var results []map[int]struct{}
-	for _, q := range queries {
-		set := make(map[int]struct{})
-		switch q.Operator {
-		case "=":
-			valStr := fmt.Sprintf("%v", q.Value)
-			if recs, ok := s.fieldEqIndex[q.Field][valStr]; ok {
-				for _, r := range recs {
-					set[r] = struct{}{}
-				}
-			}
-		case "!=":
-			match := make(map[int]struct{})
-			valStr := fmt.Sprintf("%v", q.Value)
-			if recs, ok := s.fieldEqIndex[q.Field][valStr]; ok {
-				for _, r := range recs {
-					match[r] = struct{}{}
-				}
-			}
-			if fieldMap, ok := s.fieldEqIndex[q.Field]; ok {
-				for _, recs := range fieldMap {
-					for _, r := range recs {
-						if _, found := match[r]; !found {
-							set[r] = struct{}{}
-						}
-					}
-				}
-			}
-		case ">", ">=", "<", "<=":
-			numVal, err := toFloat64(q.Value)
-			if err != nil {
-				return nil, fmt.Errorf("value for range query must be numeric: %v", q.Value)
-			}
-			entries, ok := s.fieldNumIndex[q.Field]
-			if !ok {
-				set = map[int]struct{}{}
-			} else {
-				var start, end int
-				switch q.Operator {
-				case ">":
-					start = sort.Search(len(entries), func(i int) bool {
-						return entries[i].Value > numVal
-					})
-					end = len(entries)
-				case ">=":
-					start = sort.Search(len(entries), func(i int) bool {
-						return entries[i].Value >= numVal
-					})
-					end = len(entries)
-				case "<":
-					end = sort.Search(len(entries), func(i int) bool {
-						return entries[i].Value >= numVal
-					})
-					start = 0
-				case "<=":
-					end = sort.Search(len(entries), func(i int) bool {
-						return entries[i].Value > numVal
-					})
-					start = 0
-				}
-				for i := start; i < end; i++ {
-					set[entries[i].Idx] = struct{}{}
-				}
-			}
-		default:
-			return nil, fmt.Errorf("unsupported operator %q", q.Operator)
-		}
-		results = append(results, set)
-	}
-
-	var finalSet map[int]struct{}
-	if len(results) > 0 {
-		finalSet = results[0]
-		for i := 1; i < len(results); i++ {
-			finalSet = intersect(finalSet, results[i])
-			if len(finalSet) == 0 {
-				break
-			}
-		}
-	}
-
-	var recIndices []int
-	for idx := range finalSet {
-		recIndices = append(recIndices, idx)
-	}
-	sort.Ints(recIndices)
-	var out []json.RawMessage
-	for _, i := range recIndices {
-		if i < 0 || i >= len(s.offsets) {
-			continue
-		}
-		start := s.offsets[i]
-		var end int64
-		if i+1 < len(s.offsets) {
-			end = s.offsets[i+1]
-		} else {
-			sz, err := s.file.Stat()
-			if err != nil {
-				continue
-			}
-			end = sz.Size()
-		}
-		buf := make([]byte, end-start)
-		if _, err := s.file.ReadAt(buf, start); err != nil {
-			continue
-		}
-		buf = bytes.TrimRight(buf, "\n")
-		out = append(out, buf)
+		out = append(out, bytes.TrimRight(buf, "\n"))
 	}
 	return out, nil
 }
@@ -361,20 +463,7 @@ func intersect(a, b map[int]struct{}) map[int]struct{} {
 	return res
 }
 
-func computeChecksum(f *os.File) (string, error) {
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return "", err
-	}
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
+// mmapFile remains unchanged but is now in its own function
 func mmapFile(f *os.File) ([]byte, error) {
 	fi, err := f.Stat()
 	if err != nil {
@@ -408,155 +497,123 @@ func (s *JSONLineStore) buildIndex() error {
 	defer syscall.Munmap(data)
 
 	lines := bytes.Split(data, []byte{'\n'})
-	total := len(lines)
-	if total > 0 && len(lines[total-1]) == 0 {
-		lines = lines[:total-1]
-		total = len(lines)
+	if len(lines) > 0 && len(lines[len(lines)-1]) == 0 {
+		lines = lines[:len(lines)-1]
 	}
 
-	s.offsets = make([]int64, total)
+	s.offsets = make([]int64, len(lines))
 	var off int64
 	for i, line := range lines {
 		s.offsets[i] = off
 		off += int64(len(line)) + 1
 	}
 
-	type indexResult struct {
-		tokenIndex map[string][]int
-		fieldEq    map[string]map[string][]int
-		fieldNum   map[string][]numEntry
+	// concurrent indexing
+	type idxRes struct {
+		token map[string][]int
+		field map[string]map[string][]int
+		num   map[string][]numEntry
 	}
-
 	numWorkers := runtime.GOMAXPROCS(0)
 	jobCh := make(chan struct {
-		index int
-		line  []byte
-	}, total)
-	resCh := make(chan indexResult, numWorkers)
+		i    int
+		line []byte
+	}, len(lines))
+	resCh := make(chan idxRes, numWorkers)
 
 	var wg sync.WaitGroup
 	worker := func() {
 		defer wg.Done()
-		partial := indexResult{
-			tokenIndex: make(map[string][]int),
-			fieldEq:    make(map[string]map[string][]int),
-			fieldNum:   make(map[string][]numEntry),
+		local := idxRes{
+			token: make(map[string][]int),
+			field: make(map[string]map[string][]int),
+			num:   make(map[string][]numEntry),
 		}
 		for job := range jobCh {
-
+			// tokenize
 			words := wordRE.FindAll(job.line, -1)
 			seen := make(map[string]struct{})
 			for _, w := range words {
-				key := strings.ToLower(string(w))
-				if _, dup := seen[key]; dup {
+				k := strings.ToLower(string(w))
+				if _, dup := seen[k]; dup {
 					continue
 				}
-				seen[key] = struct{}{}
-				partial.tokenIndex[key] = append(partial.tokenIndex[key], job.index)
+				seen[k] = struct{}{}
+				local.token[k] = append(local.token[k], job.i)
 			}
-
+			// fields
 			var m map[string]any
 			if err := json.Unmarshal(job.line, &m); err == nil {
-				for field, val := range m {
-					valStr := fmt.Sprintf("%v", val)
-					if partial.fieldEq[field] == nil {
-						partial.fieldEq[field] = make(map[string][]int)
+				for f, v := range m {
+					vs := fmt.Sprintf("%v", v)
+					if local.field[f] == nil {
+						local.field[f] = make(map[string][]int)
 					}
-					partial.fieldEq[field][valStr] = append(partial.fieldEq[field][valStr], job.index)
-					switch num := val.(type) {
+					local.field[f][vs] = append(local.field[f][vs], job.i)
+					switch num := v.(type) {
 					case float64:
-						partial.fieldNum[field] = append(partial.fieldNum[field], numEntry{Value: num, Idx: job.index})
+						local.num[f] = append(local.num[f], numEntry{Value: num, Idx: job.i})
 					case json.Number:
-						if f, err := num.Float64(); err == nil {
-							partial.fieldNum[field] = append(partial.fieldNum[field], numEntry{Value: f, Idx: job.index})
+						if fv, err := num.Float64(); err == nil {
+							local.num[f] = append(local.num[f], numEntry{Value: fv, Idx: job.i})
 						}
 					case int:
-						partial.fieldNum[field] = append(partial.fieldNum[field], numEntry{Value: float64(num), Idx: job.index})
+						local.num[f] = append(local.num[f], numEntry{Value: float64(num), Idx: job.i})
 					}
 				}
 			}
 		}
-		resCh <- partial
+		resCh <- local
 	}
 
 	wg.Add(numWorkers)
 	for i := 0; i < numWorkers; i++ {
 		go worker()
 	}
-
 	for i, line := range lines {
-
 		jobCh <- struct {
-			index int
-			line  []byte
-		}{index: i, line: line}
+			i    int
+			line []byte
+		}{i, line}
 	}
 	close(jobCh)
 	wg.Wait()
 	close(resCh)
 
-	mergedToken := make(map[string][]int)
-	mergedFieldEq := make(map[string]map[string][]int)
-	mergedFieldNum := make(map[string][]numEntry)
-	for res := range resCh {
-		for token, idxs := range res.tokenIndex {
-			mergedToken[token] = append(mergedToken[token], idxs...)
+	// merge
+	mergedTok := make(map[string][]int)
+	mergedField := make(map[string]map[string][]int)
+	mergedNum := make(map[string][]numEntry)
+	for r := range resCh {
+		for tok, idxs := range r.token {
+			mergedTok[tok] = append(mergedTok[tok], idxs...)
 		}
-		for field, valMap := range res.fieldEq {
-			if mergedFieldEq[field] == nil {
-				mergedFieldEq[field] = make(map[string][]int)
+		for f, mp := range r.field {
+			if mergedField[f] == nil {
+				mergedField[f] = make(map[string][]int)
 			}
-			for val, idxs := range valMap {
-				mergedFieldEq[field][val] = append(mergedFieldEq[field][val], idxs...)
+			for vs, idxs := range mp {
+				mergedField[f][vs] = append(mergedField[f][vs], idxs...)
 			}
 		}
-		for field, entries := range res.fieldNum {
-			mergedFieldNum[field] = append(mergedFieldNum[field], entries...)
+		for f, ents := range r.num {
+			mergedNum[f] = append(mergedNum[f], ents...)
 		}
 	}
-
-	for field, entries := range mergedFieldNum {
-		sort.Slice(entries, func(i, j int) bool { return entries[i].Value < entries[j].Value })
-		mergedFieldNum[field] = entries
+	// sort numeric indexes
+	for f := range mergedNum {
+		sort.Slice(mergedNum[f], func(i, j int) bool {
+			return mergedNum[f][i].Value < mergedNum[f][j].Value
+		})
 	}
 
 	s.mu.Lock()
-	s.index = mergedToken
-	s.fieldEqIndex = mergedFieldEq
-	s.fieldNumIndex = mergedFieldNum
+	s.index = mergedTok
+	s.fieldEqIndex = mergedField
+	s.fieldNumIndex = mergedNum
 	s.mu.Unlock()
-	return s.saveIndex()
-}
-
-func (s *JSONLineStore) saveIndex() error {
-	tmp := s.idxPath + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	enc := gob.NewEncoder(f)
-	if err := enc.Encode(s.checksum); err != nil {
-		f.Close()
-		return err
-	}
-	if err := enc.Encode(s.offsets); err != nil {
-		f.Close()
-		return err
-	}
-	if err := enc.Encode(s.index); err != nil {
-		f.Close()
-		return err
-	}
-	if err := enc.Encode(s.fieldEqIndex); err != nil {
-		f.Close()
-		return err
-	}
-	if err := enc.Encode(s.fieldNumIndex); err != nil {
-		f.Close()
-		return err
-	}
-	f.Close()
-	return os.Rename(tmp, s.idxPath)
+	s.asyncSaveIndex()
+	return nil
 }
 
 func (s *JSONLineStore) loadIndex() error {
@@ -565,12 +622,14 @@ func (s *JSONLineStore) loadIndex() error {
 		return err
 	}
 	defer f.Close()
+
 	dec := gob.NewDecoder(f)
 	var savedCS string
 	var offs []int64
-	var tokenIdx map[string][]int
-	var fieldEq map[string]map[string][]int
-	var fieldNum map[string][]numEntry
+	var tok map[string][]int
+	var fe map[string]map[string][]int
+	var fn map[string][]numEntry
+
 	if err := dec.Decode(&savedCS); err != nil {
 		return err
 	}
@@ -580,19 +639,20 @@ func (s *JSONLineStore) loadIndex() error {
 	if err := dec.Decode(&offs); err != nil {
 		return err
 	}
-	if err := dec.Decode(&tokenIdx); err != nil {
+	if err := dec.Decode(&tok); err != nil {
 		return err
 	}
-	if err := dec.Decode(&fieldEq); err != nil {
+	if err := dec.Decode(&fe); err != nil {
 		return err
 	}
-	if err := dec.Decode(&fieldNum); err != nil {
+	if err := dec.Decode(&fn); err != nil {
 		return err
 	}
+
 	s.offsets = offs
-	s.index = tokenIdx
-	s.fieldEqIndex = fieldEq
-	s.fieldNumIndex = fieldNum
+	s.index = tok
+	s.fieldEqIndex = fe
+	s.fieldNumIndex = fn
 	return nil
 }
 

@@ -150,7 +150,8 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 		return fmt.Errorf("invalid JSON array")
 	}
 	jobs := make(chan GenericRecord, 50)
-	partialCh := make(chan partialIndex, index.numWorkers)
+	partialCh := make(chan partialIndex, index.numWorkers*2)
+	const flushThreshold = 1000
 	var wg sync.WaitGroup
 	for w := 0; w < index.numWorkers; w++ {
 		wg.Add(1)
@@ -161,7 +162,7 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 				lengths:  make(map[int]int),
 				inverted: make(map[string][]Posting),
 			}
-			var localID int
+			var localID, count int
 			for rec := range jobs {
 				select {
 				case <-ctx.Done():
@@ -172,12 +173,22 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 					partial.docs[docID] = rec
 					freq := rec.getFrequency()
 					docLen := 0
-					for term, count := range freq {
-						partial.inverted[term] = append(partial.inverted[term], Posting{DocID: docID, Frequency: count})
-						docLen += count
+					for term, cnt := range freq {
+						partial.inverted[term] = append(partial.inverted[term], Posting{DocID: docID, Frequency: cnt})
+						docLen += cnt
 					}
 					partial.lengths[docID] = docLen
 					partial.totalDocs++
+					count++
+					if count >= flushThreshold {
+						partialCh <- partial
+						partial = partialIndex{
+							docs:     make(map[int]GenericRecord),
+							lengths:  make(map[int]int),
+							inverted: make(map[string][]Posting),
+						}
+						count = 0
+					}
 					for _, cb := range callbacks {
 						if err := cb(rec); err != nil {
 							log.Printf("callback error: %v", err)
@@ -185,7 +196,9 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 					}
 				}
 			}
-			partialCh <- partial
+			if count > 0 {
+				partialCh <- partial
+			}
 		}(w)
 	}
 	go func() {
@@ -208,8 +221,8 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 		wg.Wait()
 		close(partialCh)
 	}()
-	index.Lock()
 	for part := range partialCh {
+		index.Lock()
 		for id, rec := range part.docs {
 			index.Documents[id] = rec
 		}
@@ -220,7 +233,9 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 			index.Index[term] = append(index.Index[term], postings...)
 		}
 		index.TotalDocs += part.totalDocs
+		index.Unlock()
 	}
+	index.Lock()
 	index.update()
 	index.Unlock()
 	return nil
@@ -275,19 +290,9 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 	index.indexingInProgress = true
 	index.searchCache = make(map[string][]ScoredDoc)
 	index.Unlock()
-	defer func() {
-		index.Lock()
-		index.indexingInProgress = false
-		index.Unlock()
-	}()
-	type partialIndex struct {
-		docs      map[int]GenericRecord
-		lengths   map[int]int
-		inverted  map[string][]Posting
-		totalDocs int
-	}
 	jobs := make(chan GenericRecord, 50)
-	partialCh := make(chan partialIndex, index.numWorkers)
+	partialCh := make(chan partialIndex, index.numWorkers*2)
+	const flushThreshold = 1000
 	var wg sync.WaitGroup
 	for w := 0; w < index.numWorkers; w++ {
 		wg.Add(1)
@@ -298,27 +303,38 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 				lengths:  make(map[int]int),
 				inverted: make(map[string][]Posting),
 			}
-			var localID int
+			var localID, count int
 			for rec := range jobs {
 				localID++
-
 				docID := workerID*100000 + localID
 				partial.docs[docID] = rec
 				freq := rec.getFrequency()
 				docLen := 0
-				for term, count := range freq {
-					partial.inverted[term] = append(partial.inverted[term], Posting{DocID: docID, Frequency: count})
-					docLen += count
+				for term, cnt := range freq {
+					partial.inverted[term] = append(partial.inverted[term], Posting{DocID: docID, Frequency: cnt})
+					docLen += cnt
 				}
 				partial.lengths[docID] = docLen
 				partial.totalDocs++
+				count++
+				if count >= flushThreshold {
+					partialCh <- partial
+					partial = partialIndex{
+						docs:     make(map[int]GenericRecord),
+						lengths:  make(map[int]int),
+						inverted: make(map[string][]Posting),
+					}
+					count = 0
+				}
 				for _, cb := range callbacks {
 					if err := cb(rec); err != nil {
 						log.Printf("callback error: %v", err)
 					}
 				}
 			}
-			partialCh <- partial
+			if count > 0 {
+				partialCh <- partial
+			}
 		}(w)
 	}
 	go func() {

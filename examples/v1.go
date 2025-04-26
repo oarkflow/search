@@ -34,7 +34,7 @@ func main() {
 	}
 	since := time.Since(startTime)
 	page := 1
-	perPage := 1
+	perPage := 10
 	paginatedResults := v1.Paginate(scoredDocs, page, perPage)
 	fmt.Println(fmt.Sprintf("Found %d matching documents (showing page %d): Latency: %s", len(scoredDocs), page, since))
 	for _, sd := range paginatedResults {

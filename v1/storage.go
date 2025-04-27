@@ -145,15 +145,20 @@ func (t *BPTree[K, V]) Search(key K) (V, bool) {
 }
 
 func (t *BPTree[K, V]) Insert(key K, value V) {
+	// Use a fixed-size array for the path to avoid heap allocations.
+	const maxDepth = 64
 	type pathEntry struct {
-		node *node[K, V]
-		idx  int
+		n   *node[K, V]
+		idx int
 	}
-	var path []pathEntry
+	var path [maxDepth]pathEntry
+	depth := 0
+
 	cur := t.root
 	for !cur.isLeaf {
 		i := sort.Search(len(cur.keys), func(i int) bool { return key < cur.keys[i] })
-		path = append(path, pathEntry{node: cur, idx: i})
+		path[depth] = pathEntry{n: cur, idx: i}
+		depth++
 		cur = cur.children[i]
 	}
 	i := sort.Search(len(cur.keys), func(i int) bool { return cur.keys[i] >= key })
@@ -162,49 +167,54 @@ func (t *BPTree[K, V]) Insert(key K, value V) {
 		t.cacheNode(cur)
 		return
 	}
-	var zeroK K
-	cur.keys = append(cur.keys, zeroK)
-	copy(cur.keys[i+1:], cur.keys[i:])
+	// Insert key and value into the leaf node; capacity is preallocated.
+	cur.keys = cur.keys[:len(cur.keys)+1]
+	cur.values = cur.values[:len(cur.values)+1]
+	copy(cur.keys[i+1:], cur.keys[i:len(cur.keys)-1])
 	cur.keys[i] = key
-	var zeroV V
-	cur.values = append(cur.values, zeroV)
-	copy(cur.values[i+1:], cur.values[i:])
+	copy(cur.values[i+1:], cur.values[i:len(cur.values)-1])
 	cur.values[i] = value
+
 	if len(cur.keys) < t.order {
 		t.cacheNode(cur)
 		return
 	}
-	var splitKey K
-	var newChild *node[K, V]
-	newChild, splitKey = t.splitLeaf(cur)
+	// Split the leaf node.
+	newChild, splitKey := t.splitLeaf(cur)
 	t.cacheNode(cur)
 	t.cacheNode(newChild)
-	for len(path) > 0 {
-		lastIdx := len(path) - 1
-		parent := path[lastIdx].node
-		childIndex := path[lastIdx].idx
-		path = path[:lastIdx]
-		parent.keys = append(parent.keys, zeroK)
-		copy(parent.keys[childIndex+1:], parent.keys[childIndex:])
+
+	// Propagate splits upward.
+	for depth > 0 {
+		depth--
+		parent := path[depth].n
+		childIndex := path[depth].idx
+		// Insert splitKey and newChild into parent without extra allocations.
+		parent.keys = parent.keys[:len(parent.keys)+1]
+		copy(parent.keys[childIndex+1:], parent.keys[childIndex:len(parent.keys)-1])
 		parent.keys[childIndex] = splitKey
-		parent.children = append(parent.children, nil)
-		copy(parent.children[childIndex+2:], parent.children[childIndex+1:])
+		parent.children = parent.children[:len(parent.children)+1]
+		copy(parent.children[childIndex+2:], parent.children[childIndex+1:len(parent.children)-1])
 		parent.children[childIndex+1] = newChild
+
 		if len(parent.children) <= t.order {
 			t.cacheNode(parent)
 			return
 		}
-		t.cacheNode(parent)
+		// Split the internal node.
 		newChild, splitKey = t.splitInternal(parent)
 		t.cacheNode(newChild)
 	}
+	// Create new root.
 	newRoot := &node[K, V]{
 		id:       t.nextNodeID,
 		isLeaf:   false,
-		keys:     []K{splitKey},
-		children: []*node[K, V]{t.root, newChild},
+		keys:     make([]K, 0, t.order),
+		children: make([]*node[K, V], 0, t.order+1),
 	}
 	t.nextNodeID++
+	newRoot.keys = append(newRoot.keys, splitKey)
+	newRoot.children = append(newRoot.children, t.root, newChild)
 	t.root = newRoot
 	t.cacheNode(newRoot)
 }

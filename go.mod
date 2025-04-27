@@ -4,6 +4,7 @@ go 1.24.2
 
 require (
 	github.com/goccy/go-reflect v1.2.0
+	github.com/google/btree v1.1.3
 	github.com/oarkflow/date v0.0.4
 	github.com/oarkflow/filters v0.0.35
 	github.com/oarkflow/flydb v0.0.1

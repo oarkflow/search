@@ -106,7 +106,12 @@ type BPTree[K Ordered, V any] struct {
 
 func NewBPTree[K Ordered, V any](order int, storageFile string, cacheCapacity int) *BPTree[K, V] {
 	t := &BPTree[K, V]{order: order, nextNodeID: 1}
-	root := &node[K, V]{id: t.nextNodeID, isLeaf: true}
+	root := &node[K, V]{
+		id:     t.nextNodeID,
+		isLeaf: true,
+		keys:   make([]K, 0, order),
+		values: make([]V, 0, order),
+	}
 	t.nextNodeID++
 	t.root = root
 	t.cache = NewLRUCache[int, *node[K, V]](cacheCapacity)
@@ -140,88 +145,104 @@ func (t *BPTree[K, V]) Search(key K) (V, bool) {
 }
 
 func (t *BPTree[K, V]) Insert(key K, value V) {
-	newKey, newChild := t.insert(t.root, key, value)
-	if newChild != nil {
-		newRoot := &node[K, V]{id: t.nextNodeID, isLeaf: false, keys: []K{newKey}, children: []*node[K, V]{t.root, newChild}}
-		t.nextNodeID++
-		t.root = newRoot
-		t.cacheNode(newRoot)
+	type pathEntry struct {
+		node *node[K, V]
+		idx  int
 	}
+	var path []pathEntry
+	cur := t.root
+	for !cur.isLeaf {
+		i := sort.Search(len(cur.keys), func(i int) bool { return key < cur.keys[i] })
+		path = append(path, pathEntry{node: cur, idx: i})
+		cur = cur.children[i]
+	}
+	i := sort.Search(len(cur.keys), func(i int) bool { return cur.keys[i] >= key })
+	if i < len(cur.keys) && cur.keys[i] == key {
+		cur.values[i] = value
+		t.cacheNode(cur)
+		return
+	}
+	var zeroK K
+	cur.keys = append(cur.keys, zeroK)
+	copy(cur.keys[i+1:], cur.keys[i:])
+	cur.keys[i] = key
+	var zeroV V
+	cur.values = append(cur.values, zeroV)
+	copy(cur.values[i+1:], cur.values[i:])
+	cur.values[i] = value
+	if len(cur.keys) < t.order {
+		t.cacheNode(cur)
+		return
+	}
+	var splitKey K
+	var newChild *node[K, V]
+	newChild, splitKey = t.splitLeaf(cur)
+	t.cacheNode(cur)
+	t.cacheNode(newChild)
+	for len(path) > 0 {
+		lastIdx := len(path) - 1
+		parent := path[lastIdx].node
+		childIndex := path[lastIdx].idx
+		path = path[:lastIdx]
+		parent.keys = append(parent.keys, zeroK)
+		copy(parent.keys[childIndex+1:], parent.keys[childIndex:])
+		parent.keys[childIndex] = splitKey
+		parent.children = append(parent.children, nil)
+		copy(parent.children[childIndex+2:], parent.children[childIndex+1:])
+		parent.children[childIndex+1] = newChild
+		if len(parent.children) <= t.order {
+			t.cacheNode(parent)
+			return
+		}
+		t.cacheNode(parent)
+		newChild, splitKey = t.splitInternal(parent)
+		t.cacheNode(newChild)
+	}
+	newRoot := &node[K, V]{
+		id:       t.nextNodeID,
+		isLeaf:   false,
+		keys:     []K{splitKey},
+		children: []*node[K, V]{t.root, newChild},
+	}
+	t.nextNodeID++
+	t.root = newRoot
+	t.cacheNode(newRoot)
 }
 
-func (t *BPTree[K, V]) insert(n *node[K, V], key K, value V) (K, *node[K, V]) {
-	if n.isLeaf {
-		i := sort.Search(len(n.keys), func(i int) bool { return n.keys[i] >= key })
-		if i < len(n.keys) && n.keys[i] == key {
-			n.values[i] = value
-			t.cacheNode(n)
-			var zero K
-			return zero, nil
-		}
-		n.keys = append(n.keys, key)
-		n.values = append(n.values, value)
-		copy(n.keys[i+1:], n.keys[i:])
-		copy(n.values[i+1:], n.values[i:])
-		n.keys[i] = key
-		n.values[i] = value
-		if len(n.keys) < t.order {
-			t.cacheNode(n)
-			var zero K
-			return zero, nil
-		}
-		newKey, newNode := t.splitLeaf(n)
-		t.cacheNode(n)
-		t.cacheNode(newNode)
-		return newKey, newNode
-	}
-	i := sort.Search(len(n.keys), func(i int) bool { return key < n.keys[i] })
-	newKey, newChild := t.insert(n.children[i], key, value)
-	if newChild == nil {
-		t.cacheNode(n)
-		var zero K
-		return zero, nil
-	}
-	j := sort.Search(len(n.keys), func(i int) bool { return newKey < n.keys[i] })
-	n.keys = append(n.keys, newKey)
-	copy(n.keys[j+1:], n.keys[j:])
-	n.keys[j] = newKey
-	n.children = append(n.children, nil)
-	copy(n.children[j+2:], n.children[j+1:])
-	n.children[j+1] = newChild
-	if len(n.children) <= t.order {
-		t.cacheNode(n)
-		var zero K
-		return zero, nil
-	}
-	promoted, newNode := t.splitInternal(n)
-	t.cacheNode(n)
-	t.cacheNode(newNode)
-	return promoted, newNode
-}
-
-func (t *BPTree[K, V]) splitLeaf(n *node[K, V]) (K, *node[K, V]) {
+func (t *BPTree[K, V]) splitLeaf(n *node[K, V]) (newNode *node[K, V], splitKey K) {
 	mid := (t.order + 1) / 2
-	newNode := &node[K, V]{id: t.nextNodeID, isLeaf: true}
+	newNode = &node[K, V]{
+		id:     t.nextNodeID,
+		isLeaf: true,
+		keys:   make([]K, 0, t.order),
+		values: make([]V, 0, t.order),
+		next:   n.next,
+	}
 	t.nextNodeID++
 	newNode.keys = append(newNode.keys, n.keys[mid:]...)
 	newNode.values = append(newNode.values, n.values[mid:]...)
 	n.keys = n.keys[:mid]
 	n.values = n.values[:mid]
-	newNode.next = n.next
+	splitKey = newNode.keys[0]
 	n.next = newNode
-	return newNode.keys[0], newNode
+	return newNode, splitKey
 }
 
-func (t *BPTree[K, V]) splitInternal(n *node[K, V]) (K, *node[K, V]) {
+func (t *BPTree[K, V]) splitInternal(n *node[K, V]) (newNode *node[K, V], promotedKey K) {
 	mid := t.order / 2
-	newNode := &node[K, V]{id: t.nextNodeID, isLeaf: false}
+	promotedKey = n.keys[mid]
+	newNode = &node[K, V]{
+		id:       t.nextNodeID,
+		isLeaf:   false,
+		keys:     make([]K, 0, t.order),
+		children: make([]*node[K, V], 0, t.order+1),
+	}
 	t.nextNodeID++
-	promoted := n.keys[mid]
 	newNode.keys = append(newNode.keys, n.keys[mid+1:]...)
 	newNode.children = append(newNode.children, n.children[mid+1:]...)
 	n.keys = n.keys[:mid]
 	n.children = n.children[:mid+1]
-	return promoted, newNode
+	return newNode, promotedKey
 }
 
 func (t *BPTree[K, V]) Delete(key K) bool {
@@ -266,14 +287,22 @@ func (t *BPTree[K, V]) rebalance(parent, child *node[K, V], idx int) {
 	minKeys := (t.order + 1) / 2
 	if left != nil && len(left.keys) > minKeys {
 		if child.isLeaf {
-			child.keys = append([]K{left.keys[len(left.keys)-1]}, child.keys...)
-			child.values = append([]V{left.values[len(left.values)-1]}, child.values...)
+			child.keys = child.keys[:len(child.keys)+1]
+			copy(child.keys[1:], child.keys)
+			child.keys[0] = left.keys[len(left.keys)-1]
+			child.values = child.values[:len(child.values)+1]
+			copy(child.values[1:], child.values)
+			child.values[0] = left.values[len(left.values)-1]
 			left.keys = left.keys[:len(left.keys)-1]
 			left.values = left.values[:len(left.values)-1]
 			parent.keys[idx-1] = child.keys[0]
 		} else {
-			child.keys = append([]K{parent.keys[idx-1]}, child.keys...)
-			child.children = append([]*node[K, V]{left.children[len(left.children)-1]}, child.children...)
+			child.keys = child.keys[:len(child.keys)+1]
+			copy(child.keys[1:], child.keys)
+			child.keys[0] = parent.keys[idx-1]
+			child.children = child.children[:len(child.children)+1]
+			copy(child.children[1:], child.children)
+			child.children[0] = left.children[len(left.children)-1]
 			left.keys = left.keys[:len(left.keys)-1]
 			left.children = left.children[:len(left.children)-1]
 			parent.keys[idx-1] = child.keys[0]
@@ -328,11 +357,9 @@ func (t *BPTree[K, V]) ForEach(fn func(key K, value V) bool) {
 	for !n.isLeaf {
 		n = n.children[0]
 	}
-	// Iterate over all leaf nodes using the next pointer.
 	for n != nil {
 		for i, key := range n.keys {
-			can := fn(key, n.values[i])
-			if !can {
+			if !fn(key, n.values[i]) {
 				return
 			}
 		}

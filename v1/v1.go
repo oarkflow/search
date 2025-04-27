@@ -74,9 +74,12 @@ type Index struct {
 	ID                 string
 	Index              map[string][]Posting
 	DocLengths         map[int]int
-	Documents          map[int]GenericRecord
+	Documents          *BPTree[int, GenericRecord]
 	TotalDocs          int
 	AvgDocLength       float64
+	order              int
+	storage            string
+	cacheCapacity      int
 	indexingInProgress bool
 	numWorkers         int
 	searchCache        map[string][]ScoredDoc
@@ -95,18 +98,39 @@ func WithNumOfWorkers(numOfWorkers int) Options {
 	}
 }
 
+func WithOrder(order int) Options {
+	return func(index *Index) {
+		index.order = order
+	}
+}
+
+func WithCacheCapacity(capacity int) Options {
+	return func(index *Index) {
+		index.cacheCapacity = capacity
+	}
+}
+
+func WithStorage(storage string) Options {
+	return func(index *Index) {
+		index.storage = storage
+	}
+}
+
 func NewIndex(id string, opts ...Options) *Index {
 	index := &Index{
-		ID:          id,
-		numWorkers:  runtime.NumCPU(),
-		Index:       make(map[string][]Posting),
-		DocLengths:  make(map[int]int),
-		Documents:   make(map[int]GenericRecord),
-		searchCache: make(map[string][]ScoredDoc),
+		ID:            id,
+		numWorkers:    runtime.NumCPU(),
+		Index:         make(map[string][]Posting),
+		DocLengths:    make(map[int]int),
+		order:         3,
+		storage:       "data/storage.dat",
+		cacheCapacity: 10000,
+		searchCache:   make(map[string][]ScoredDoc),
 	}
 	for _, opt := range opts {
 		opt(index)
 	}
+	index.Documents = NewBPTree[int, GenericRecord](index.order, index.storage, index.cacheCapacity)
 	return index
 }
 
@@ -132,7 +156,7 @@ type partialIndex struct {
 func (index *Index) mergePartial(partial partialIndex) {
 	index.Lock()
 	for id, rec := range partial.docs {
-		index.Documents[id] = rec
+		index.Documents.Insert(id, rec)
 	}
 	for id, length := range partial.lengths {
 		index.DocLengths[id] = length
@@ -372,7 +396,7 @@ func (index *Index) BuildFromStruct(ctx context.Context, slice any, callbacks ..
 }
 
 func (index *Index) indexDoc(docID int, rec GenericRecord, freq map[string]int) {
-	index.Documents[docID] = rec
+	index.Documents.Insert(docID, rec)
 	docLen := 0
 	for t, count := range freq {
 		index.Index[t] = append(index.Index[t], Posting{DocID: docID, Frequency: count})
@@ -523,8 +547,8 @@ func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchPara
 
 func (index *Index) sortData(scored []ScoredDoc, fields []SortField) {
 	sort.SliceStable(scored, func(i, j int) bool {
-		docI := index.Documents[scored[i].DocID]
-		docJ := index.Documents[scored[j].DocID]
+		docI, _ := index.Documents.Search(scored[i].DocID)
+		docJ, _ := index.Documents.Search(scored[j].DocID)
 		for _, field := range fields {
 			valI, okI := docI[field.Field]
 			valJ, okJ := docJ[field.Field]
@@ -606,12 +630,12 @@ func (index *Index) AddDocument(rec GenericRecord) {
 func (index *Index) UpdateDocument(docID int, rec GenericRecord) error {
 	index.Lock()
 	index.searchCache = make(map[string][]ScoredDoc)
-	if _, ok := index.Documents[docID]; !ok {
+	oldRec, ok := index.Documents.Search(docID)
+	if !ok {
 		index.Unlock()
 		return fmt.Errorf("document %d does not exist", docID)
 	}
 
-	oldRec := index.Documents[docID]
 	oldFreq := oldRec.getFrequency()
 	for term := range oldFreq {
 		if postings, exists := index.Index[term]; exists {
@@ -629,7 +653,7 @@ func (index *Index) UpdateDocument(docID int, rec GenericRecord) error {
 		}
 		index.DocLengths[docID] -= oldFreq[term]
 	}
-	index.Documents[docID] = rec
+	index.Documents.Insert(docID, rec)
 	newFreq := rec.getFrequency()
 	docLen := 0
 	for term, count := range newFreq {
@@ -645,11 +669,11 @@ func (index *Index) UpdateDocument(docID int, rec GenericRecord) error {
 func (index *Index) DeleteDocument(docID int) error {
 	index.Lock()
 	index.searchCache = make(map[string][]ScoredDoc)
-	if _, ok := index.Documents[docID]; !ok {
+	rec, ok := index.Documents.Search(docID)
+	if !ok {
 		index.Unlock()
 		return fmt.Errorf("document %d does not exist", docID)
 	}
-	rec := index.Documents[docID]
 	freq := rec.getFrequency()
 	for term := range freq {
 		if postings, exists := index.Index[term]; exists {
@@ -666,12 +690,16 @@ func (index *Index) DeleteDocument(docID int) error {
 			}
 		}
 	}
-	delete(index.Documents, docID)
+	index.Documents.Delete(docID)
 	delete(index.DocLengths, docID)
 	index.TotalDocs--
 	index.update()
 	index.Unlock()
 	return nil
+}
+
+func (index *Index) GetDocument(id int) (any, bool) {
+	return index.Documents.Search(id)
 }
 
 type QueryFunc func(index *Index) []int

@@ -31,7 +31,6 @@ func (m *Manager) AddIndex(name string, index *Index) {
 }
 
 func (m *Manager) GetIndex(name string) (*Index, bool) {
-	// Use a read lock for retrieving the index
 	m.mutex.Lock() // Replace with RLock if mutex becomes RWMutex; otherwise, minimal change
 	defer m.mutex.Unlock()
 	index, ok := m.indexes[name]
@@ -45,7 +44,6 @@ func (m *Manager) DeleteIndex(name string) {
 }
 
 func (m *Manager) ListIndexes() []string {
-	// Use a read lock for listing indexes
 	m.mutex.Lock() // Replace with RLock if mutex becomes RWMutex
 	defer m.mutex.Unlock()
 	names := make([]string, 0, len(m.indexes))
@@ -83,7 +81,10 @@ func (m *Manager) Search(ctx context.Context, name string, q string) ([]GenericR
 	}
 	var data []GenericRecord
 	for _, sd := range results.Results {
-		data = append(data, index.Documents[sd.DocID])
+		rec, ok := index.GetDocument(sd.DocID)
+		if ok {
+			data = append(data, rec.(GenericRecord))
+		}
 	}
 	return data, nil
 }

@@ -60,12 +60,13 @@ type PhraseQuery struct {
 func (pq PhraseQuery) Evaluate(index *Index) []int {
 	var result []int
 	phrase := strings.ToLower(pq.Phrase)
-	for docID, rec := range index.Documents {
+	index.Documents.ForEach(func(docID int, rec GenericRecord) bool {
 		combined := strings.ToLower(rec.String())
 		if strings.Contains(combined, phrase) {
 			result = append(result, docID)
 		}
-	}
+		return true
+	})
 	return result
 }
 
@@ -87,32 +88,34 @@ func NewRangeQuery(field string, lower, upper float64) RangeQuery {
 	}
 }
 
-func (rq RangeQuery) Evaluate(index *Index) []int {
-	var result []int
-	for docID, rec := range index.Documents {
-		val, ok := rec[rq.Field]
-		if !ok {
-			continue
-		}
-		var num float64
-		switch v := val.(type) {
-		case float64:
-			num = v
-		case int:
-			num = float64(v)
-		case string:
-			if parsed, err := strconv.ParseFloat(v, 64); err == nil {
-				num = parsed
-			} else {
-				continue
-			}
-		default:
-			continue
-		}
-		if num >= rq.Lower && num <= rq.Upper {
-			result = append(result, docID)
+func ToFloat(val any) (float64, bool) {
+	switch v := val.(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case string:
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			return parsed, true
 		}
 	}
+	return 0, false
+}
+
+func (rq RangeQuery) Evaluate(index *Index) []int {
+	var result []int
+	index.Documents.ForEach(func(docID int, rec GenericRecord) bool {
+		val, ok := rec[rq.Field]
+		if ok {
+			num, ok := ToFloat(val)
+			if ok {
+				if num >= rq.Lower && num <= rq.Upper {
+					result = append(result, docID)
+				}
+			}
+		}
+		return true
+	})
 	return result
 }
 
@@ -134,9 +137,10 @@ func (bq BoolQuery) Evaluate(index *Index) []int {
 			mustResult = utils.Intersect(mustResult, bq.Must[i].Evaluate(index))
 		}
 	} else {
-		for docID := range index.Documents {
+		index.Documents.ForEach(func(docID int, rec GenericRecord) bool {
 			mustResult = append(mustResult, docID)
-		}
+			return true
+		})
 	}
 	var shouldResult []int
 	for _, q := range bq.Should {
@@ -184,14 +188,15 @@ type MatchQuery struct {
 func (mq MatchQuery) Evaluate(index *Index) []int {
 	var result []int
 	search := strings.ToLower(mq.Query)
-	for docID, rec := range index.Documents {
+	index.Documents.ForEach(func(docID int, rec GenericRecord) bool {
 		if val, ok := rec[mq.Field]; ok {
 			strVal := strings.ToLower(strings.TrimSpace(utils.ToString(val)))
 			if strings.Contains(strVal, search) {
 				result = append(result, docID)
 			}
 		}
-	}
+		return true
+	})
 	return result
 }
 
@@ -215,14 +220,15 @@ func (wq WildcardQuery) Evaluate(index *Index) []int {
 	if err != nil {
 		return result
 	}
-	for docID, rec := range index.Documents {
+	index.Documents.ForEach(func(docID int, rec GenericRecord) bool {
 		if val, ok := rec[wq.Field]; ok {
 			strVal := utils.ToString(val)
 			if re.MatchString(strVal) {
 				result = append(result, docID)
 			}
 		}
-	}
+		return true
+	})
 	return result
 }
 
@@ -254,14 +260,15 @@ func (sq SQLQuery) Evaluate(index *Index) []int {
 	// Remove quotes if present
 	value = strings.Trim(value, "'\"")
 	value = strings.ToLower(value)
-	for docID, rec := range index.Documents {
+	index.Documents.ForEach(func(docID int, rec GenericRecord) bool {
 		if val, ok := rec[field]; ok {
 			strVal := strings.ToLower(strings.TrimSpace(utils.ToString(val)))
 			if strVal == value {
 				result = append(result, docID)
 			}
 		}
-	}
+		return true
+	})
 	return result
 }
 

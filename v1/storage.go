@@ -1,14 +1,17 @@
-package main
+package v1
 
 import (
+	"container/list"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"sort"
-	"strconv"
-	"time"
+	"syscall"
 
 	"github.com/oarkflow/xid"
+
+	"github.com/oarkflow/search/v1/utils"
 )
 
 type Ordered interface {
@@ -16,6 +19,7 @@ type Ordered interface {
 }
 
 type node[K Ordered, V any] struct {
+	id       int
 	isLeaf   bool
 	keys     []K
 	children []*node[K, V]
@@ -23,15 +27,102 @@ type node[K Ordered, V any] struct {
 	next     *node[K, V]
 }
 
-type BPTree[K Ordered, V any] struct {
-	root  *node[K, V]
-	order int
+type LRUCache[K comparable, V any] struct {
+	capacity int
+	cache    map[K]*list.Element
+	ll       *list.List
 }
 
-func NewBPTree[K Ordered, V any](order int) *BPTree[K, V] {
-	t := &BPTree[K, V]{order: order}
-	t.root = &node[K, V]{isLeaf: true}
+type entry[K comparable, V any] struct {
+	key   K
+	value V
+}
+
+func NewLRUCache[K comparable, V any](capacity int) *LRUCache[K, V] {
+	return &LRUCache[K, V]{
+		capacity: capacity,
+		cache:    make(map[K]*list.Element),
+		ll:       list.New(),
+	}
+}
+
+func (l *LRUCache[K, V]) Get(key K) (V, bool) {
+	if ele, ok := l.cache[key]; ok {
+		l.ll.MoveToFront(ele)
+		log.Printf("LRUCache: Accessed key %v", key)
+		return ele.Value.(entry[K, V]).value, true
+	}
+	var zero V
+	return zero, false
+}
+
+func (l *LRUCache[K, V]) Put(key K, value V) {
+	if ele, ok := l.cache[key]; ok {
+		l.ll.MoveToFront(ele)
+		ele.Value = entry[K, V]{key, value}
+		return
+	}
+	ele := l.ll.PushFront(entry[K, V]{key, value})
+	l.cache[key] = ele
+	if l.ll.Len() > l.capacity {
+		l.RemoveOldest()
+	}
+}
+
+func (l *LRUCache[K, V]) RemoveOldest() {
+	ele := l.ll.Back()
+	if ele != nil {
+		en := ele.Value.(entry[K, V])
+
+		delete(l.cache, en.key)
+		l.ll.Remove(ele)
+	}
+}
+
+func initStorage(filePath string, size int) ([]byte, error) {
+	f, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Truncate(int64(size)); err != nil {
+		f.Close()
+		return nil, err
+	}
+	data, err := syscall.Mmap(int(f.Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	return data, nil
+}
+
+type BPTree[K Ordered, V any] struct {
+	root       *node[K, V]
+	order      int
+	nextNodeID int
+	cache      *LRUCache[int, *node[K, V]]
+	storage    []byte
+}
+
+func NewBPTree[K Ordered, V any](order int, storageFile string, cacheCapacity int) *BPTree[K, V] {
+	t := &BPTree[K, V]{order: order, nextNodeID: 1}
+	root := &node[K, V]{id: t.nextNodeID, isLeaf: true}
+	t.nextNodeID++
+	t.root = root
+	t.cache = NewLRUCache[int, *node[K, V]](cacheCapacity)
+	t.cache.Put(root.id, root)
+	if storageFile != "" {
+		if data, err := initStorage(storageFile, 10*1024*1024); err == nil {
+			t.storage = data
+		} else {
+			fmt.Println("mmap init error:", err)
+		}
+	}
 	return t
+}
+
+func (t *BPTree[K, V]) cacheNode(n *node[K, V]) {
+	t.cache.Put(n.id, n)
 }
 
 func (t *BPTree[K, V]) Search(key K) (V, bool) {
@@ -51,7 +142,10 @@ func (t *BPTree[K, V]) Search(key K) (V, bool) {
 func (t *BPTree[K, V]) Insert(key K, value V) {
 	newKey, newChild := t.insert(t.root, key, value)
 	if newChild != nil {
-		t.root = &node[K, V]{isLeaf: false, keys: []K{newKey}, children: []*node[K, V]{t.root, newChild}}
+		newRoot := &node[K, V]{id: t.nextNodeID, isLeaf: false, keys: []K{newKey}, children: []*node[K, V]{t.root, newChild}}
+		t.nextNodeID++
+		t.root = newRoot
+		t.cacheNode(newRoot)
 	}
 }
 
@@ -60,6 +154,7 @@ func (t *BPTree[K, V]) insert(n *node[K, V], key K, value V) (K, *node[K, V]) {
 		i := sort.Search(len(n.keys), func(i int) bool { return n.keys[i] >= key })
 		if i < len(n.keys) && n.keys[i] == key {
 			n.values[i] = value
+			t.cacheNode(n)
 			var zero K
 			return zero, nil
 		}
@@ -70,14 +165,19 @@ func (t *BPTree[K, V]) insert(n *node[K, V], key K, value V) (K, *node[K, V]) {
 		n.keys[i] = key
 		n.values[i] = value
 		if len(n.keys) < t.order {
+			t.cacheNode(n)
 			var zero K
 			return zero, nil
 		}
-		return t.splitLeaf(n)
+		newKey, newNode := t.splitLeaf(n)
+		t.cacheNode(n)
+		t.cacheNode(newNode)
+		return newKey, newNode
 	}
 	i := sort.Search(len(n.keys), func(i int) bool { return key < n.keys[i] })
 	newKey, newChild := t.insert(n.children[i], key, value)
 	if newChild == nil {
+		t.cacheNode(n)
 		var zero K
 		return zero, nil
 	}
@@ -89,15 +189,20 @@ func (t *BPTree[K, V]) insert(n *node[K, V], key K, value V) (K, *node[K, V]) {
 	copy(n.children[j+2:], n.children[j+1:])
 	n.children[j+1] = newChild
 	if len(n.children) <= t.order {
+		t.cacheNode(n)
 		var zero K
 		return zero, nil
 	}
-	return t.splitInternal(n)
+	promoted, newNode := t.splitInternal(n)
+	t.cacheNode(n)
+	t.cacheNode(newNode)
+	return promoted, newNode
 }
 
 func (t *BPTree[K, V]) splitLeaf(n *node[K, V]) (K, *node[K, V]) {
 	mid := (t.order + 1) / 2
-	newNode := &node[K, V]{isLeaf: true}
+	newNode := &node[K, V]{id: t.nextNodeID, isLeaf: true}
+	t.nextNodeID++
 	newNode.keys = append(newNode.keys, n.keys[mid:]...)
 	newNode.values = append(newNode.values, n.values[mid:]...)
 	n.keys = n.keys[:mid]
@@ -109,7 +214,8 @@ func (t *BPTree[K, V]) splitLeaf(n *node[K, V]) (K, *node[K, V]) {
 
 func (t *BPTree[K, V]) splitInternal(n *node[K, V]) (K, *node[K, V]) {
 	mid := t.order / 2
-	newNode := &node[K, V]{isLeaf: false}
+	newNode := &node[K, V]{id: t.nextNodeID, isLeaf: false}
+	t.nextNodeID++
 	promoted := n.keys[mid]
 	newNode.keys = append(newNode.keys, n.keys[mid+1:]...)
 	newNode.children = append(newNode.children, n.children[mid+1:]...)
@@ -217,29 +323,20 @@ func (t *BPTree[K, V]) rebalance(parent, child *node[K, V], idx int) {
 	}
 }
 
-func toString(val any) string {
-	switch val := val.(type) {
-	case string:
-		return val
-	case []byte:
-		return string(val)
-	case int, int32, int64, int8, int16, uint, uint32, uint64, uint8, uint16:
-		return fmt.Sprintf("%d", val)
-	case float32:
-		buf := make([]byte, 0, 32)
-		buf = strconv.AppendFloat(buf, float64(val), 'f', -1, 64)
-		return string(buf)
-	case float64:
-		buf := make([]byte, 0, 32)
-		buf = strconv.AppendFloat(buf, val, 'f', -1, 64)
-		return string(buf)
-	case bool:
-		if val {
-			return "true"
+func (t *BPTree[K, V]) ForEach(fn func(key K, value V) bool) {
+	n := t.root
+	for !n.isLeaf {
+		n = n.children[0]
+	}
+	// Iterate over all leaf nodes using the next pointer.
+	for n != nil {
+		for i, key := range n.keys {
+			can := fn(key, n.values[i])
+			if !can {
+				return
+			}
 		}
-		return "false"
-	default:
-		return fmt.Sprintf("%v", val)
+		n = n.next
 	}
 }
 
@@ -257,39 +354,8 @@ func StoreFromJSON(tree *BPTree[string, map[string]any], file string, keyField s
 		if !ok {
 			v = xid.New().String()
 		}
-		key := toString(v)
+		key := utils.ToString(v)
 		tree.Insert(key, rec)
 	}
 	return nil
-}
-
-func main() {
-	tree := NewBPTree[int, string](3)
-	tree.Insert(10, "a")
-	tree.Insert(20, "b")
-	tree.Insert(5, "c")
-	tree.Insert(6, "d")
-	tree.Insert(12, "e")
-	tree.Insert(30, "f")
-	tree.Insert(7, "g")
-	tree.Insert(17, "h")
-	keys := []int{5, 6, 7, 10, 12, 17, 20, 30}
-	for _, k := range keys {
-		if v, ok := tree.Search(k); ok {
-			fmt.Printf("%d: %v\n", k, v)
-		} else {
-			fmt.Printf("%d not found\n", k)
-		}
-	}
-	tree.Delete(10)
-	if _, ok := tree.Search(10); !ok {
-		fmt.Println("10 deleted")
-	}
-	treeStr := NewBPTree[string, map[string]any](2)
-	start := time.Now()
-	err := StoreFromJSON(treeStr, "charge_master.json", "charge_master_id")
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Printf("Time taken to store from JSON: %v\n", time.Since(start))
 }

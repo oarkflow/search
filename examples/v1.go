@@ -38,14 +38,17 @@ func main() {
 			},
 		},
 	}
+	before = lib.Stats()
 	scoredDocs, err := index.Search(ctx, boolQ, params)
 	if err != nil {
 		log.Fatalf("Error searching index: %v", err)
 	}
+	after = lib.Stats()
+	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
 	since := time.Since(startTime)
 	fmt.Println(fmt.Sprintf("Found %d matching documents (showing page %d): Latency: %s", len(scoredDocs.Results), scoredDocs.Page, since))
 	for _, sd := range scoredDocs.Results {
-		rec := index.Documents[sd.DocID]
+		rec, _ := index.GetDocument(sd.DocID)
 		fmt.Println(fmt.Sprintf("DocID: %d | Score: %.4f | Data: %+v", sd.DocID, sd.Score, rec))
 	}
 }

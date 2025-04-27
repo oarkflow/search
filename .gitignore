@@ -13,6 +13,7 @@ storage/fts
 *.frame.gz
 fts-storage
 documentStorage
+*.dat
 *.index
 fts
 *.ndjson

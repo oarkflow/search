@@ -5,15 +5,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"unicode"
 
 	"github.com/oarkflow/json"
 )
-
-func ToString(value interface{}) string {
-	return fmt.Sprint(value)
-}
 
 func Intersect(a, b []int) []int {
 	m := make(map[int]bool)
@@ -263,4 +260,30 @@ func Compare(a, b any) int {
 	}
 
 	panic(fmt.Sprintf("unsupported compare types: %T and %T", a, b))
+}
+
+func ToString(val any) string {
+	switch val := val.(type) {
+	case string:
+		return val
+	case []byte:
+		return string(val)
+	case int, int32, int64, int8, int16, uint, uint32, uint64, uint8, uint16:
+		return fmt.Sprintf("%d", val)
+	case float32:
+		buf := make([]byte, 0, 32)
+		buf = strconv.AppendFloat(buf, float64(val), 'f', -1, 64)
+		return string(buf)
+	case float64:
+		buf := make([]byte, 0, 32)
+		buf = strconv.AppendFloat(buf, val, 'f', -1, 64)
+		return string(buf)
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	default:
+		return fmt.Sprintf("%v", val)
+	}
 }

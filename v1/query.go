@@ -1,9 +1,14 @@
 package v1
 
 import (
+	"encoding/json"
+	"fmt"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/oarkflow/filters"
 
 	"github.com/oarkflow/search/v1/utils"
 )
@@ -98,6 +103,13 @@ func ToFloat(val any) (float64, bool) {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
 			return parsed, true
 		}
+	case json.Number:
+		parsed, err := v.Float64()
+		if err == nil {
+			return parsed, true
+		}
+	default:
+		fmt.Println(reflect.TypeOf(v), v, "not supported")
 	}
 	return 0, false
 }
@@ -205,15 +217,13 @@ func (mq MatchQuery) Tokens() []string {
 	return utils.Tokenize(strings.ToLower(mq.Query))
 }
 
-// WildcardQuery evaluates a query using wildcard patterns on a field.
 type WildcardQuery struct {
 	Field   string
-	Pattern string // supports '*' as wildcard
+	Pattern string
 }
 
 func (wq WildcardQuery) Evaluate(index *Index) []int {
 	var result []int
-	// Convert wildcard '*' to regex pattern
 	regexPattern := "^" + regexp.QuoteMeta(wq.Pattern) + "$"
 	regexPattern = strings.ReplaceAll(regexPattern, "\\*", ".*")
 	re, err := regexp.Compile(regexPattern)
@@ -237,42 +247,81 @@ func (wq WildcardQuery) Tokens() []string {
 	return []string{strings.ToLower(wq.Pattern)}
 }
 
-// SQLQuery supports simple SQL queries: only equality conditions in the WHERE clause.
-// Example supported query: "SELECT * FROM docs WHERE field = 'value'"
 type SQLQuery struct {
-	SQL string
+	SQL  string
+	Term Query
+}
+
+func NewSQLQuery(sql string, term ...Query) *SQLQuery {
+	query := &SQLQuery{SQL: sql}
+	if len(term) > 0 {
+		query.Term = term[0]
+	}
+	return query
 }
 
 func (sq SQLQuery) Evaluate(index *Index) []int {
-	var result []int
-	parts := strings.SplitN(sq.SQL, "WHERE", 2)
-	if len(parts) != 2 {
-		return result
+	var base, result []int
+	if sq.Term != nil {
+		base = sq.Term.Evaluate(index)
 	}
-	condition := strings.TrimSpace(parts[1])
-	// Assume condition is in the format: "field = 'value'" (or "field = value")
-	condParts := strings.SplitN(condition, "=", 2)
-	if len(condParts) != 2 {
-		return result
+	rule, err := filters.ParseSQL(sq.SQL)
+	if err != nil || rule == nil {
+		return base
 	}
-	field := strings.TrimSpace(condParts[0])
-	value := strings.TrimSpace(condParts[1])
-	// Remove quotes if present
-	value = strings.Trim(value, "'\"")
-	value = strings.ToLower(value)
 	index.Documents.ForEach(func(docID int, rec GenericRecord) bool {
-		if val, ok := rec[field]; ok {
-			strVal := strings.ToLower(strings.TrimSpace(utils.ToString(val)))
-			if strVal == value {
-				result = append(result, docID)
-			}
+		if rule.Match(rec) {
+			result = append(result, docID)
 		}
 		return true
 	})
-	return result
+	if len(result) == 0 || sq.Term == nil {
+		return result
+	}
+	return utils.Intersect(base, result)
 }
 
 func (sq SQLQuery) Tokens() []string {
 	// SQL query is parsed internally; no tokens extracted.
+	return []string{}
+}
+
+type FilterQuery struct {
+	Filters *filters.FilterGroup
+	Term    Query
+}
+
+func NewFilterQuery(term Query, operator filters.Boolean, reverse bool, conditions ...filters.Condition) FilterQuery {
+	if len(conditions) > 0 {
+		rule := filters.NewFilterGroup(operator, reverse, conditions...)
+		return FilterQuery{Filters: rule, Term: term}
+	}
+	return FilterQuery{Term: term}
+}
+
+func (fq FilterQuery) Evaluate(index *Index) []int {
+	var base, result []int
+	if fq.Term != nil {
+		base = fq.Term.Evaluate(index)
+	}
+	if fq.Filters == nil {
+		return base
+	}
+	index.Documents.ForEach(func(docID int, rec GenericRecord) bool {
+		if fq.Filters.Match(rec) {
+			result = append(result, docID)
+		}
+		return true
+	})
+	if len(result) == 0 || fq.Term == nil {
+		return result
+	}
+	return utils.Intersect(base, result)
+}
+
+func (fq FilterQuery) Tokens() []string {
+	if fq.Term != nil {
+		return fq.Term.Tokens()
+	}
 	return []string{}
 }

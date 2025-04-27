@@ -6,54 +6,56 @@ import (
 	"log"
 	"time"
 
-	"github.com/oarkflow/search/lib"
+	"github.com/oarkflow/filters"
+
 	v1 "github.com/oarkflow/search/v1"
 )
 
 func main() {
-	manager := v1.NewManager()
-	manager.StartHTTP(":8080")
-}
-
-func mai1n() {
+	// Initialize and build the index
 	ctx := context.Background()
-	jsonFilePath := "charge_master.json"
-	startTime := time.Now()
-	index := v1.NewIndex("test")
-	before := lib.Stats()
-	err := index.Build(ctx, jsonFilePath)
-	after := lib.Stats()
-	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
+	index := v1.NewIndex("test-filter")
+	jsonFile := "charge_master.json"
+	start := time.Now()
+	err := index.Build(ctx, jsonFile)
 	if err != nil {
-		log.Fatalf("Error building index: %v", err)
+		log.Fatalf("Index build error: %v", err)
 	}
-	fmt.Println(fmt.Sprintf("Index built for %d documents in %s", index.TotalDocs, time.Since(startTime)))
-	termQ := v1.NewTermQuery("33965", true, 1)
-	boolQ := v1.BoolQuery{
-		Must: []v1.Query{termQ},
+	fmt.Printf("Built index for %d docs in %s\n", index.TotalDocs, time.Since(start))
+
+	// 1) TermQuery example (fuzzy)
+	// termQ := v1.NewTermQuery("9560012", true, 1)
+
+	// 2) Define Filters: e.g., charge_amount >= 100 AND charge_type = "service"
+	conditions := []filters.Condition{
+		&filters.Filter{Field: "charge_amt", Operator: filters.GreaterThanEqual, Value: 100},
+		&filters.Filter{Field: "charge_type", Operator: filters.Equal, Value: "ED_FACILITY"},
 	}
-	startTime = time.Now()
+
+	// 3) Combine into a FilterQuery
+	fq := v1.NewFilterQuery(nil, filters.AND, false, conditions...)
+
+	// 4) SearchParams (with sorting and pagination)
 	params := v1.SearchParams{
 		Page:    1,
-		PerPage: 20,
-		SortFields: []v1.SortField{
-			{
-				Field:     "charge_type",
-				Ascending: true,
-			},
-		},
+		PerPage: 1,
+		SortFields: []v1.SortField{{
+			Field:     "charge_type",
+			Ascending: true,
+		}},
 	}
-	before = lib.Stats()
-	scoredDocs, err := index.Search(ctx, boolQ, params)
+
+	searchStart := time.Now()
+	page, err := index.Search(ctx, fq, params)
 	if err != nil {
-		log.Fatalf("Error searching index: %v", err)
+		log.Fatalf("Search error: %v", err)
 	}
-	after = lib.Stats()
-	fmt.Println(fmt.Sprintf("Usage: %dMB; Before: %dMB; After: %dMB", after-before, before, after))
-	since := time.Since(startTime)
-	fmt.Println(fmt.Sprintf("Found %d matching documents (showing page %d): Latency: %s", len(scoredDocs.Results), scoredDocs.Page, since))
-	for _, sd := range scoredDocs.Results {
-		rec, _ := index.GetDocument(sd.DocID)
-		fmt.Println(fmt.Sprintf("DocID: %d | Score: %.4f | Data: %+v", sd.DocID, sd.Score, rec))
+	fmt.Printf("Found %d docs (page %d/%d) in %s\n", page.Total, page.Page, page.TotalPages, time.Since(searchStart))
+
+	searchStart = time.Now()
+	page, err = index.Search(ctx, fq, params)
+	if err != nil {
+		log.Fatalf("Search error: %v", err)
 	}
+	fmt.Printf("Found %d docs (page %d/%d) in %s\n", page.Total, page.Page, page.TotalPages, time.Since(searchStart))
 }

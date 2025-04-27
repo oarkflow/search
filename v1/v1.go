@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -83,6 +84,7 @@ type Index struct {
 	indexingInProgress bool
 	numWorkers         int
 	searchCache        map[string][]ScoredDoc
+	reset              bool
 }
 
 type IndexRequest struct {
@@ -116,19 +118,31 @@ func WithStorage(storage string) Options {
 	}
 }
 
+func WithReset(reset bool) Options {
+	return func(index *Index) {
+		index.reset = reset
+	}
+}
+
 func NewIndex(id string, opts ...Options) *Index {
+	baseDir := "data"
+	os.MkdirAll(baseDir, 0755)
+	storagePath := filepath.Join(baseDir, "storage-"+id+".dat")
 	index := &Index{
 		ID:            id,
 		numWorkers:    runtime.NumCPU(),
 		Index:         make(map[string][]Posting),
 		DocLengths:    make(map[int]int),
 		order:         3,
-		storage:       "data/storage.dat",
+		storage:       storagePath,
 		cacheCapacity: 10000,
 		searchCache:   make(map[string][]ScoredDoc),
 	}
 	for _, opt := range opts {
 		opt(index)
+	}
+	if index.reset {
+		os.Remove(storagePath)
 	}
 	index.Documents = NewBPTree[int, GenericRecord](index.order, index.storage, index.cacheCapacity)
 	return index
@@ -587,6 +601,20 @@ type Page struct {
 
 func smartPaginate(docs []ScoredDoc, page, perPage int) Page {
 	total := len(docs)
+	if perPage < 1 {
+		perPage = 10
+	}
+	if total == 0 {
+		return Page{
+			Results:    []ScoredDoc{},
+			Total:      0,
+			Page:       1,
+			PerPage:    perPage,
+			TotalPages: 0,
+			NextPage:   nil,
+			PrevPage:   nil,
+		}
+	}
 	totalPages := (total + perPage - 1) / perPage
 	if page < 1 {
 		page = 1

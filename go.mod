@@ -6,11 +6,11 @@ require (
 	github.com/goccy/go-reflect v1.2.0
 	github.com/google/btree v1.1.3
 	github.com/oarkflow/date v0.0.4
-	github.com/oarkflow/filters v0.0.35
+	github.com/oarkflow/filters v0.0.36
 	github.com/oarkflow/flydb v0.0.1
 	github.com/oarkflow/frame v0.0.69
 	github.com/oarkflow/gopool v0.0.2
-	github.com/oarkflow/json v0.0.27
+	github.com/oarkflow/json v0.0.28
 	github.com/oarkflow/log v1.0.83
 	github.com/oarkflow/metadata v0.0.76
 	github.com/oarkflow/msgpack v0.0.1
@@ -43,7 +43,7 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20250317134145-8bc96cf8fc35 // indirect
 	github.com/microsoft/go-mssqldb v1.8.0 // indirect
 	github.com/nyaruka/phonenumbers v1.6.1 // indirect
-	github.com/oarkflow/convert v0.0.4 // indirect
+	github.com/oarkflow/convert v0.0.5 // indirect
 	github.com/oarkflow/dipper v0.0.6 // indirect
 	github.com/oarkflow/errors v0.0.6 // indirect
 	github.com/oarkflow/expr v0.0.11 // indirect

@@ -11,6 +11,11 @@ import (
 )
 
 func main() {
+	manager := v1.NewManager()
+	manager.StartHTTP(":8080")
+}
+
+func mai1n() {
 	ctx := context.Background()
 	jsonFilePath := "charge_master.json"
 	startTime := time.Now()

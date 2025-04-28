@@ -3,6 +3,7 @@ package v1
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"log"
@@ -479,18 +480,39 @@ type SearchParams struct {
 	Fields     []string
 }
 
+func generateCacheKey(q Query, sp SearchParams) (string, error) {
+	tokens := q.Tokens()
+	var queryStr string
+	if len(tokens) > 0 {
+		queryStr = strings.Join(tokens, " ")
+	} else {
+		queryStr = fmt.Sprintf("%T:%v", q, q)
+	}
+	composite := struct {
+		Query  string       `json:"query"`
+		Search SearchParams `json:"search"`
+	}{
+		Query:  queryStr,
+		Search: sp,
+	}
+	data, err := json.Marshal(composite)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal composite key: %w", err)
+	}
+	hash := sha256.Sum256(data)
+	return fmt.Sprintf("%x", hash), nil
+}
+
 func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchParams) (Page, error) {
 	var params SearchParams
 	if len(paramList) > 0 {
 		params = paramList[0]
 	}
-	queryTokens := q.Tokens()
-	var key string
-	if len(queryTokens) > 0 {
-		key = strings.Join(queryTokens, " ")
-	} else {
-		key = fmt.Sprintf("%T:%v", q, q)
+	key, err := generateCacheKey(q, params)
+	if err != nil {
+		return Page{}, err
 	}
+	queryTokens := q.Tokens()
 	page := params.Page
 	perPage := params.PerPage
 	index.RLock()
@@ -556,9 +578,11 @@ func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchPara
 			return scored[i].Score > scored[j].Score
 		})
 	}
-	index.Lock()
-	index.searchCache[key] = scored
-	index.Unlock()
+	if len(scored) > 0 {
+		index.Lock()
+		index.searchCache[key] = scored
+		index.Unlock()
+	}
 	return smartPaginate(scored, page, perPage), nil
 }
 
@@ -598,6 +622,16 @@ type Page struct {
 	TotalPages int
 	NextPage   *int
 	PrevPage   *int
+}
+
+type Result struct {
+	Items      []GenericRecord `json:"items"`
+	Total      int             `json:"total"`
+	Page       int             `json:"page"`
+	PerPage    int             `json:"per_page"`
+	TotalPages int             `json:"total_pages"`
+	NextPage   *int            `json:"next_page"`
+	PrevPage   *int            `json:"prev_page"`
 }
 
 func smartPaginate(docs []ScoredDoc, page, perPage int) Page {

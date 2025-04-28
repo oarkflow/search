@@ -67,7 +67,7 @@ func (m *Manager) Build(ctx context.Context, name string, req any) error {
 	return index.Build(ctx, req)
 }
 
-func (m *Manager) Search(ctx context.Context, name string, q string) ([]GenericRecord, error) {
+func (m *Manager) Search(ctx context.Context, name string, req Request) (*Result, error) {
 	m.mutex.Lock()
 	index, ok := m.indexes[name]
 	m.mutex.Unlock()
@@ -75,11 +75,47 @@ func (m *Manager) Search(ctx context.Context, name string, q string) ([]GenericR
 		fmt.Printf("index %s not found\n", name)
 		return nil, fmt.Errorf("index %s not found", name)
 	}
-	params := SearchParams{
-		Page:    1,
-		PerPage: 10,
+	sort := SortField{Field: req.SortField}
+	if strings.ToLower(req.SortOrder) == "desc" {
+		sort.Descending = true
 	}
-	results, err := index.Search(ctx, NewTermQuery(q, true, 1), params)
+	if req.Page <= 0 {
+		req.Page = 1
+	}
+	if req.Size <= 0 {
+		req.Size = 10
+	}
+	params := SearchParams{
+		Page:       req.Page,
+		PerPage:    req.Size,
+		Fields:     req.Fields,
+		SortFields: []SortField{sort},
+	}
+	var conditions []filters.Condition
+	for _, cond := range req.Filters {
+		conditions = append(conditions, cond)
+	}
+	if len(conditions) == 0 && req.Query == "" {
+		return nil, fmt.Errorf("no filters or query provided")
+	}
+	var query Query
+	if len(conditions) > 0 {
+		query = NewFilterQuery(nil, filters.Boolean(req.Match), req.Reverse, conditions...)
+	}
+	if req.Query != "" {
+		termQuery := NewTermQuery(req.Query, true, 1)
+		switch qry := query.(type) {
+		case *FilterQuery:
+			qry.Term = termQuery
+			query = qry
+		case FilterQuery:
+			qry.Term = termQuery
+			query = qry
+		case nil:
+			query = termQuery
+		}
+	}
+	results, err := index.Search(ctx, query, params)
 	if err != nil {
 		return nil, err
 	}
@@ -87,10 +123,27 @@ func (m *Manager) Search(ctx context.Context, name string, q string) ([]GenericR
 	for _, sd := range results.Results {
 		rec, ok := index.GetDocument(sd.DocID)
 		if ok {
-			data = append(data, rec.(GenericRecord))
+			record, ok := rec.(GenericRecord)
+			if len(params.Fields) > 0 {
+				if ok {
+					for _, field := range params.Fields {
+						delete(record, field)
+					}
+				}
+			}
+			data = append(data, record)
 		}
 	}
-	return data, nil
+	pagedData := &Result{
+		Items:      data,
+		Total:      results.Total,
+		Page:       results.Page,
+		PerPage:    results.PerPage,
+		TotalPages: results.TotalPages,
+		NextPage:   results.NextPage,
+		PrevPage:   results.PrevPage,
+	}
+	return pagedData, nil
 }
 
 type NewIndexRequest struct {
@@ -130,6 +183,10 @@ func prepareQuery(r *http.Request) (Request, error) {
 		if err != nil {
 			return query, fmt.Errorf("error unmarshalling extra: %v", err)
 		}
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q != "" {
+		query.Query = q
 	}
 	var extra []*filters.Filter
 	for k, v := range extraMap {
@@ -239,14 +296,14 @@ func (m *Manager) StartHTTP(addr string) {
 			http.Error(w, "Index name required in path", http.StatusBadRequest)
 			return
 		}
-		q := r.URL.Query().Get("q")
-		if strings.TrimSpace(q) == "" {
-			http.Error(w, "Query parameter 'q' is required", http.StatusBadRequest)
+		req, err := prepareQuery(r)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error preparing query: %v", err), http.StatusBadRequest)
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		results, err := m.Search(ctx, indexName, q)
+		results, err := m.Search(ctx, indexName, req)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Search error: %v", err), http.StatusInternalServerError)
 			return

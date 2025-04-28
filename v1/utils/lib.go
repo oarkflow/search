@@ -12,12 +12,12 @@ import (
 	"github.com/oarkflow/json"
 )
 
-func Intersect(a, b []int) []int {
-	m := make(map[int]bool)
+func Intersect(a, b []int64) []int64 {
+	m := make(map[int64]bool)
 	for _, id := range a {
 		m[id] = true
 	}
-	var result []int
+	var result []int64
 	for _, id := range b {
 		if m[id] {
 			result = append(result, id)
@@ -26,27 +26,27 @@ func Intersect(a, b []int) []int {
 	return result
 }
 
-func Union(a, b []int) []int {
-	m := make(map[int]bool)
+func Union(a, b []int64) []int64 {
+	m := make(map[int64]bool)
 	for _, id := range a {
 		m[id] = true
 	}
 	for _, id := range b {
 		m[id] = true
 	}
-	var result []int
+	var result []int64
 	for id := range m {
 		result = append(result, id)
 	}
 	return result
 }
 
-func Subtract(a, b []int) []int {
-	m := make(map[int]bool)
+func Subtract(a, b []int64) []int64 {
+	m := make(map[int64]bool)
 	for _, id := range b {
 		m[id] = true
 	}
-	var result []int
+	var result []int64
 	for _, id := range a {
 		if !m[id] {
 			result = append(result, id)

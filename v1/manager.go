@@ -149,13 +149,13 @@ func (m *Manager) StartHTTP(addr string) {
 			return
 		}
 		if req.Path != "" {
-			go func(ctx context.Context, indexName string, req IndexRequest) {
-				err = m.Build(ctx, indexName, req)
+			go func(indexName string, req IndexRequest) {
+				err = m.Build(context.Background(), indexName, req)
 				if err != nil {
 					http.Error(w, fmt.Sprintf("Build error: %v", err), http.StatusInternalServerError)
 					return
 				}
-			}(ctx, indexName, req)
+			}(indexName, req)
 			w.Write([]byte(fmt.Sprintf("Indexing started for %s with index name %s", req.Path, indexName)))
 			return
 		}

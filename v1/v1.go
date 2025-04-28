@@ -17,6 +17,7 @@ import (
 
 	"github.com/goccy/go-reflect"
 	"github.com/oarkflow/json"
+	"github.com/oarkflow/xid"
 
 	"github.com/oarkflow/search/v1/utils"
 )
@@ -61,12 +62,12 @@ func (rec GenericRecord) getFrequency() map[string]int {
 }
 
 type Posting struct {
-	DocID     int
+	DocID     int64
 	Frequency int
 }
 
 type ScoredDoc struct {
-	DocID int
+	DocID int64
 	Score float64
 }
 
@@ -74,8 +75,8 @@ type Index struct {
 	sync.RWMutex
 	ID                 string
 	Index              map[string][]Posting
-	DocLengths         map[int]int
-	Documents          *BPTree[int, GenericRecord]
+	DocLengths         map[int64]int
+	Documents          *BPTree[int64, GenericRecord]
 	TotalDocs          int
 	AvgDocLength       float64
 	order              int
@@ -132,7 +133,7 @@ func NewIndex(id string, opts ...Options) *Index {
 		ID:            id,
 		numWorkers:    runtime.NumCPU(),
 		Index:         make(map[string][]Posting),
-		DocLengths:    make(map[int]int),
+		DocLengths:    make(map[int64]int),
 		order:         3,
 		storage:       storagePath,
 		cacheCapacity: 10000,
@@ -144,7 +145,7 @@ func NewIndex(id string, opts ...Options) *Index {
 	if index.reset {
 		os.Remove(storagePath)
 	}
-	index.Documents = NewBPTree[int, GenericRecord](index.order, index.storage, index.cacheCapacity)
+	index.Documents = NewBPTree[int64, GenericRecord](index.order, index.storage, index.cacheCapacity)
 	return index
 }
 
@@ -161,8 +162,8 @@ func (index *Index) FuzzySearch(term string, threshold int) []string {
 }
 
 type partialIndex struct {
-	docs      map[int]GenericRecord
-	lengths   map[int]int
+	docs      map[int64]GenericRecord
+	lengths   map[int64]int
 	inverted  map[string][]Posting
 	totalDocs int
 }
@@ -199,10 +200,14 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 	decoder := json.NewDecoder(r)
 	decoder.UseNumber()
 	tok, err := decoder.Token()
-	if err != nil || tok != json.Delim('[') {
-		return fmt.Errorf("invalid JSON array")
+	if err != nil {
+		return fmt.Errorf("failed to read JSON token: %v", err)
 	}
-	jobs := make(chan GenericRecord, 50)
+	d, ok := tok.(json.Delim)
+	if !ok || d != '[' {
+		return fmt.Errorf("invalid JSON array, expected '[' got %v", tok)
+	}
+	jobs := make(chan GenericRecord, 500)
 	const flushThreshold = 100
 	var wg sync.WaitGroup
 	for w := 0; w < index.numWorkers; w++ {
@@ -210,19 +215,17 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 		go func(workerID int) {
 			defer wg.Done()
 			partial := partialIndex{
-				docs:     make(map[int]GenericRecord),
-				lengths:  make(map[int]int),
+				docs:     make(map[int64]GenericRecord),
+				lengths:  make(map[int64]int),
 				inverted: make(map[string][]Posting),
 			}
 			var localID, count int
 			for rec := range jobs {
-				select {
-				case <-ctx.Done():
+				if ctx.Err() != nil {
 					return
-				default:
 				}
 				localID++
-				docID := workerID*100000 + localID
+				docID := xid.New().Int64()
 				partial.docs[docID] = rec
 				freq := rec.getFrequency()
 				docLen := 0
@@ -236,8 +239,8 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 				if count >= flushThreshold {
 					index.mergePartial(partial)
 					partial = partialIndex{
-						docs:     make(map[int]GenericRecord),
-						lengths:  make(map[int]int),
+						docs:     make(map[int64]GenericRecord),
+						lengths:  make(map[int64]int),
 						inverted: make(map[string][]Posting),
 					}
 					count = 0
@@ -253,12 +256,11 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 			}
 		}(w)
 	}
+	// Updated job producer: check context and break out properly
 	go func() {
 		for decoder.More() {
-			select {
-			case <-ctx.Done():
+			if ctx.Err() != nil {
 				break
-			default:
 			}
 			var rec GenericRecord
 			if err := decoder.Decode(&rec); err != nil {
@@ -333,14 +335,14 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 		go func(workerID int) {
 			defer wg.Done()
 			partial := partialIndex{
-				docs:     make(map[int]GenericRecord),
-				lengths:  make(map[int]int),
+				docs:     make(map[int64]GenericRecord),
+				lengths:  make(map[int64]int),
 				inverted: make(map[string][]Posting),
 			}
 			var localID, count int
 			for rec := range jobs {
 				localID++
-				docID := workerID*100000 + localID
+				docID := xid.New().Int64()
 				partial.docs[docID] = rec
 				freq := rec.getFrequency()
 				docLen := 0
@@ -354,8 +356,8 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 				if count >= flushThreshold {
 					index.mergePartial(partial)
 					partial = partialIndex{
-						docs:     make(map[int]GenericRecord),
-						lengths:  make(map[int]int),
+						docs:     make(map[int64]GenericRecord),
+						lengths:  make(map[int64]int),
 						inverted: make(map[string][]Posting),
 					}
 					count = 0
@@ -373,10 +375,8 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 	}
 	go func() {
 		for _, rec := range records {
-			select {
-			case <-ctx.Done():
+			if ctx.Err() != nil {
 				break
-			default:
 			}
 			jobs <- rec
 		}
@@ -409,7 +409,7 @@ func (index *Index) BuildFromStruct(ctx context.Context, slice any, callbacks ..
 	return index.BuildFromRecords(ctx, records, callbacks...)
 }
 
-func (index *Index) indexDoc(docID int, rec GenericRecord, freq map[string]int) {
+func (index *Index) indexDoc(docID int64, rec GenericRecord, freq map[string]int) {
 	index.Documents.Insert(docID, rec)
 	docLen := 0
 	for t, count := range freq {
@@ -431,7 +431,7 @@ func (index *Index) update() {
 	log.Println(fmt.Sprintf("Indexing completed for %s", index.ID))
 }
 
-func (index *Index) bm25Score(queryTokens []string, docID int, k1, b float64) float64 {
+func (index *Index) bm25Score(queryTokens []string, docID int64, k1, b float64) float64 {
 	index.RLock()
 	defer index.RUnlock()
 	score := 0.0
@@ -525,7 +525,7 @@ func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchPara
 		mu     sync.Mutex
 	)
 	docIDs := q.Evaluate(index)
-	ch := make(chan int, len(docIDs))
+	ch := make(chan int64, len(docIDs))
 	for _, id := range docIDs {
 		ch <- id
 	}
@@ -649,7 +649,7 @@ func smartPaginate(docs []ScoredDoc, page, perPage int) Page {
 func (index *Index) AddDocument(rec GenericRecord) {
 	index.Lock()
 	index.searchCache = make(map[string][]ScoredDoc)
-	docID := index.TotalDocs + 1
+	docID := xid.New().Int64()
 	freq := rec.getFrequency()
 	index.indexDoc(docID, rec, freq)
 	index.TotalDocs++
@@ -657,7 +657,7 @@ func (index *Index) AddDocument(rec GenericRecord) {
 	index.Unlock()
 }
 
-func (index *Index) UpdateDocument(docID int, rec GenericRecord) error {
+func (index *Index) UpdateDocument(docID int64, rec GenericRecord) error {
 	index.Lock()
 	index.searchCache = make(map[string][]ScoredDoc)
 	oldRec, ok := index.Documents.Search(docID)
@@ -696,7 +696,7 @@ func (index *Index) UpdateDocument(docID int, rec GenericRecord) error {
 	return nil
 }
 
-func (index *Index) DeleteDocument(docID int) error {
+func (index *Index) DeleteDocument(docID int64) error {
 	index.Lock()
 	index.searchCache = make(map[string][]ScoredDoc)
 	rec, ok := index.Documents.Search(docID)
@@ -728,7 +728,7 @@ func (index *Index) DeleteDocument(docID int) error {
 	return nil
 }
 
-func (index *Index) GetDocument(id int) (any, bool) {
+func (index *Index) GetDocument(id int64) (any, bool) {
 	return index.Documents.Search(id)
 }
 

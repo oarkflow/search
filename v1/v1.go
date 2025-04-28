@@ -476,6 +476,7 @@ type SearchParams struct {
 	PerPage    int
 	BM25Params BM25
 	SortFields []SortField
+	Fields     []string
 }
 
 func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchParams) (Page, error) {
@@ -575,18 +576,18 @@ func (index *Index) sortData(scored []ScoredDoc, fields []SortField) {
 			if cmp == 0 {
 				continue
 			}
-			if field.Ascending {
-				return cmp < 0
+			if field.Descending {
+				return cmp > 0
 			}
-			return cmp > 0
+			return cmp < 0
 		}
 		return scored[i].Score > scored[j].Score
 	})
 }
 
 type SortField struct {
-	Field     string
-	Ascending bool
+	Field      string
+	Descending bool
 }
 
 type Page struct {

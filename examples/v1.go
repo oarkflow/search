@@ -46,8 +46,7 @@ func mai1n() {
 		Page:    1,
 		PerPage: 1,
 		SortFields: []v1.SortField{{
-			Field:     "charge_type",
-			Ascending: true,
+			Field: "charge_type",
 		}},
 	}
 

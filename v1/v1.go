@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/goccy/go-reflect"
 	"github.com/oarkflow/json"
@@ -72,6 +73,11 @@ type ScoredDoc struct {
 	Score float64
 }
 
+type cacheEntry struct {
+	data   []ScoredDoc
+	expiry time.Time
+}
+
 type Index struct {
 	sync.RWMutex
 	ID                 string
@@ -85,7 +91,8 @@ type Index struct {
 	cacheCapacity      int
 	indexingInProgress bool
 	numWorkers         int
-	searchCache        map[string][]ScoredDoc
+	searchCache        map[string]cacheEntry
+	cacheExpiry        time.Duration
 	reset              bool
 }
 
@@ -126,6 +133,12 @@ func WithReset(reset bool) Options {
 	}
 }
 
+func WithCacheExpiry(dur time.Duration) Options {
+	return func(index *Index) {
+		index.cacheExpiry = dur
+	}
+}
+
 func NewIndex(id string, opts ...Options) *Index {
 	baseDir := "data"
 	os.MkdirAll(baseDir, 0755)
@@ -138,7 +151,8 @@ func NewIndex(id string, opts ...Options) *Index {
 		order:         3,
 		storage:       storagePath,
 		cacheCapacity: 10000,
-		searchCache:   make(map[string][]ScoredDoc),
+		searchCache:   make(map[string]cacheEntry),
+		cacheExpiry:   time.Minute,
 	}
 	for _, opt := range opts {
 		opt(index)
@@ -147,6 +161,7 @@ func NewIndex(id string, opts ...Options) *Index {
 		os.Remove(storagePath)
 	}
 	index.Documents = NewBPTree[int64, GenericRecord](index.order, index.storage, index.cacheCapacity)
+	index.startCacheCleanup()
 	return index
 }
 
@@ -191,7 +206,7 @@ func (index *Index) BuildFromReader(ctx context.Context, r io.Reader, callbacks 
 		return fmt.Errorf("indexing already in progress")
 	}
 	index.indexingInProgress = true
-	index.searchCache = make(map[string][]ScoredDoc)
+	index.searchCache = make(map[string]cacheEntry)
 	index.Unlock()
 	defer func() {
 		index.Lock()
@@ -326,7 +341,7 @@ func (index *Index) BuildFromRecords(ctx context.Context, records []GenericRecor
 		return fmt.Errorf("indexing already in progress")
 	}
 	index.indexingInProgress = true
-	index.searchCache = make(map[string][]ScoredDoc)
+	index.searchCache = make(map[string]cacheEntry)
 	index.Unlock()
 	jobs := make(chan GenericRecord, 50)
 	const flushThreshold = 100
@@ -516,7 +531,9 @@ func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchPara
 	page := params.Page
 	perPage := params.PerPage
 	index.RLock()
-	if res, found := index.searchCache[key]; found {
+	entry, found := index.searchCache[key]
+	if found && time.Now().Before(entry.expiry) {
+		cached := entry.data
 		index.RUnlock()
 		if page < 1 {
 			page = 1
@@ -525,13 +542,13 @@ func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchPara
 			perPage = 10
 		}
 		if len(params.SortFields) > 0 {
-			index.sortData(res, params.SortFields)
+			index.sortData(cached, params.SortFields)
 		} else {
-			sort.Slice(res, func(i, j int) bool {
-				return res[i].Score > res[j].Score
+			sort.Slice(cached, func(i, j int) bool {
+				return cached[i].Score > cached[j].Score
 			})
 		}
-		return smartPaginate(res, page, perPage), nil
+		return smartPaginate(cached, page, perPage), nil
 	}
 	if index.indexingInProgress {
 		index.RUnlock()
@@ -580,7 +597,7 @@ func (index *Index) Search(ctx context.Context, q Query, paramList ...SearchPara
 	}
 	if len(scored) > 0 {
 		index.Lock()
-		index.searchCache[key] = scored
+		index.searchCache[key] = cacheEntry{data: scored, expiry: time.Now().Add(index.cacheExpiry)}
 		index.Unlock()
 	}
 	return smartPaginate(scored, page, perPage), nil
@@ -683,7 +700,7 @@ func smartPaginate(docs []ScoredDoc, page, perPage int) Page {
 
 func (index *Index) AddDocument(rec GenericRecord) {
 	index.Lock()
-	index.searchCache = make(map[string][]ScoredDoc)
+	index.searchCache = make(map[string]cacheEntry)
 	docID := xid.New().Int64()
 	freq := rec.getFrequency()
 	index.indexDoc(docID, rec, freq)
@@ -694,7 +711,7 @@ func (index *Index) AddDocument(rec GenericRecord) {
 
 func (index *Index) UpdateDocument(docID int64, rec GenericRecord) error {
 	index.Lock()
-	index.searchCache = make(map[string][]ScoredDoc)
+	index.searchCache = make(map[string]cacheEntry)
 	oldRec, ok := index.Documents.Search(docID)
 	if !ok {
 		index.Unlock()
@@ -733,7 +750,7 @@ func (index *Index) UpdateDocument(docID int64, rec GenericRecord) error {
 
 func (index *Index) DeleteDocument(docID int64) error {
 	index.Lock()
-	index.searchCache = make(map[string][]ScoredDoc)
+	index.searchCache = make(map[string]cacheEntry)
 	rec, ok := index.Documents.Search(docID)
 	if !ok {
 		index.Unlock()
@@ -771,4 +788,22 @@ type QueryFunc func(index *Index) []int
 
 func (f QueryFunc) Evaluate(index *Index) []int {
 	return f(index)
+}
+
+func (index *Index) startCacheCleanup() {
+	go func() {
+		ticker := time.NewTicker(index.cacheExpiry)
+		defer ticker.Stop()
+		for range ticker.C {
+			index.Lock()
+			now := time.Now()
+			for k, entry := range index.searchCache {
+				if now.After(entry.expiry) {
+					log.Printf("cache entry expired: %s", k)
+					delete(index.searchCache, k)
+				}
+			}
+			index.Unlock()
+		}
+	}()
 }

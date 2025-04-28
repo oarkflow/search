@@ -26,16 +26,16 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20250317134145-8bc96cf8fc35 // indirect
 	github.com/microsoft/go-mssqldb v1.8.0 // indirect
 	github.com/nyaruka/phonenumbers v1.6.1 // indirect
-	github.com/oarkflow/convert v0.0.4 // indirect
+	github.com/oarkflow/convert v0.0.5 // indirect
 	github.com/oarkflow/date v0.0.4 // indirect
 	github.com/oarkflow/dipper v0.0.6 // indirect
 	github.com/oarkflow/errors v0.0.6 // indirect
 	github.com/oarkflow/expr v0.0.11 // indirect
-	github.com/oarkflow/filters v0.0.35 // indirect
+	github.com/oarkflow/filters v0.0.36 // indirect
 	github.com/oarkflow/flydb v0.0.1 // indirect
 	github.com/oarkflow/frame v0.0.69 // indirect
 	github.com/oarkflow/gopool v0.0.2 // indirect
-	github.com/oarkflow/json v0.0.27 // indirect
+	github.com/oarkflow/json v0.0.28 // indirect
 	github.com/oarkflow/log v1.0.83 // indirect
 	github.com/oarkflow/metadata v0.0.76 // indirect
 	github.com/oarkflow/msgpack v0.0.1 // indirect

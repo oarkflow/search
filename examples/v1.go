@@ -7,11 +7,17 @@ import (
 	"time"
 
 	"github.com/oarkflow/filters"
+	"github.com/oarkflow/json"
 
 	v1 "github.com/oarkflow/search/v1"
 )
 
 func main() {
+	manager := v1.NewManager()
+	manager.StartHTTP(":8080")
+}
+
+func mai1n() {
 	// Initialize and build the index
 	ctx := context.Background()
 	index := v1.NewIndex("test-filter")
@@ -51,6 +57,11 @@ func main() {
 		log.Fatalf("Search error: %v", err)
 	}
 	fmt.Printf("Found %d docs (page %d/%d) in %s\n", page.Total, page.Page, page.TotalPages, time.Since(searchStart))
+	for _, sd := range page.Results {
+		rec, _ := index.GetDocument(sd.DocID)
+		bt, _ := json.Marshal(rec)
+		fmt.Printf("DocID:%d Score:%.4f Data:%s\n", sd.DocID, sd.Score, string(bt))
+	}
 
 	searchStart = time.Now()
 	page, err = index.Search(ctx, fq, params)
@@ -58,4 +69,10 @@ func main() {
 		log.Fatalf("Search error: %v", err)
 	}
 	fmt.Printf("Found %d docs (page %d/%d) in %s\n", page.Total, page.Page, page.TotalPages, time.Since(searchStart))
+	for _, sd := range page.Results {
+		rec, _ := index.GetDocument(sd.DocID)
+		fmt.Println(rec)
+		bt, _ := json.Marshal(rec)
+		fmt.Printf("DocID:%d Score:%.4f Data:%s\n", sd.DocID, sd.Score, string(bt))
+	}
 }

@@ -5,14 +5,22 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/oarkflow/filters"
+
 	"github.com/oarkflow/search"
 	"github.com/oarkflow/search/lib"
 )
 
 func main() {
-	bt := []byte(`{"query": "33965"}`)
+	bt := []byte(`{}`)
 	var params search.Params
 	json.Unmarshal(bt, &params)
+	params.Filters = []*filters.Filter{
+		{Field: "charge_amt", Operator: filters.GreaterThanEqual, Value: 100},
+		{Field: "charge_type", Operator: filters.Equal, Value: "ED_FACILITY"},
+	}
+	params.Paginate = true
+	params.Limit = 2
 	icds := lib.ReadFileAsMap("charge_master.json")
 	db, _ := search.New[map[string]any](&search.Config{Storage: "memory"})
 	var startTime = time.Now()

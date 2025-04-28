@@ -148,6 +148,17 @@ func (m *Manager) StartHTTP(addr string) {
 			http.Error(w, fmt.Sprintf("Error unmarshalling request: %v", err), http.StatusBadRequest)
 			return
 		}
+		if req.Path != "" {
+			go func(ctx context.Context, indexName string, req IndexRequest) {
+				err = m.Build(ctx, indexName, req)
+				if err != nil {
+					http.Error(w, fmt.Sprintf("Build error: %v", err), http.StatusInternalServerError)
+					return
+				}
+			}(ctx, indexName, req)
+			w.Write([]byte(fmt.Sprintf("Indexing started for %s with index name %s", req.Path, indexName)))
+			return
+		}
 		err = m.Build(ctx, indexName, req)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Build error: %v", err), http.StatusInternalServerError)

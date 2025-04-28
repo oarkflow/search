@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"unicode"
@@ -260,6 +261,27 @@ func Compare(a, b any) int {
 	}
 
 	panic(fmt.Sprintf("unsupported compare types: %T and %T", a, b))
+}
+
+func ToFloat(val any) (float64, bool) {
+	switch v := val.(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case string:
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			return parsed, true
+		}
+	case json.Number:
+		parsed, err := v.Float64()
+		if err == nil {
+			return parsed, true
+		}
+	default:
+		fmt.Println(reflect.TypeOf(v), v, "not supported")
+	}
+	return 0, false
 }
 
 func ToString(val any) string {

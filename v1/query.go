@@ -1,25 +1,13 @@
 package v1
 
 import (
-	"encoding/json"
-	"fmt"
-	"reflect"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/oarkflow/filters"
-	"github.com/oarkflow/xid"
 
 	"github.com/oarkflow/search/v1/utils"
 )
-
-func init() {
-	id := xid.New()
-	fmt.Println(id.Int64())
-	fmt.Println(id.Int64())
-	fmt.Println(id.Int64())
-}
 
 type Query interface {
 	Evaluate(index *Index) []int64
@@ -101,33 +89,12 @@ func NewRangeQuery(field string, lower, upper float64) RangeQuery {
 	}
 }
 
-func ToFloat(val any) (float64, bool) {
-	switch v := val.(type) {
-	case float64:
-		return v, true
-	case int:
-		return float64(v), true
-	case string:
-		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
-			return parsed, true
-		}
-	case json.Number:
-		parsed, err := v.Float64()
-		if err == nil {
-			return parsed, true
-		}
-	default:
-		fmt.Println(reflect.TypeOf(v), v, "not supported")
-	}
-	return 0, false
-}
-
 func (rq RangeQuery) Evaluate(index *Index) []int64 {
 	var result []int64
 	index.Documents.ForEach(func(docID int64, rec GenericRecord) bool {
 		val, ok := rec[rq.Field]
 		if ok {
-			num, ok := ToFloat(val)
+			num, ok := utils.ToFloat(val)
 			if ok {
 				if num >= rq.Lower && num <= rq.Upper {
 					result = append(result, docID)
